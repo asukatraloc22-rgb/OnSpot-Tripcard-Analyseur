@@ -1,13 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "OnSpot - Analyseur RGPD",
-  "version": "1.0",
-  "description": "Anonymise et prépare l'analyse de la fiche voyage OnSpot",
+  "name": "OnSpot Audit Assistant",
+  "version": "1.0.0",
+  "description": "Extrait le contenu d'une Tripcard OnSpot et de ses vouchers PDF pour générer un prompt d'audit IA.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "OnSpot Audit Assistant"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }
