@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "OnSpot - Analyseur RGPD",
+  "version": "1.0",
+  "description": "Anonymise et prépare l'analyse de la fiche voyage OnSpot",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
