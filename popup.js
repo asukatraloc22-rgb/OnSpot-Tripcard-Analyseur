@@ -2,13 +2,12 @@
 // OnSpot Audit Assistant — popup.js
 // =========================================================================
 
+import * as pdfjsLib from './pdf.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
+
 const analyzeBtn = document.getElementById('analyzeBtn');
 const statusBox = document.getElementById('status');
-
-// Configure pdf.js worker (le fichier pdf.worker.min.js doit être local, voir instructions)
-if (window['pdfjsLib']) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
-}
 
 function logStatus(message, type = 'info') {
   const line = document.createElement('div');
