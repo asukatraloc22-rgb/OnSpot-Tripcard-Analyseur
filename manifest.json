@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "OnSpot Audit Assistant",
+  "version": "1.1.0",
+  "description": "Extrait le contenu d'une Tripcard OnSpot et de ses vouchers (PDF, DOCX, XLSX) pour générer un prompt d'audit IA et alimenter Trip Card Elite.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "OnSpot Audit Assistant"
+  }
+}

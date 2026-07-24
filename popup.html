@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>OnSpot Audit Assistant</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --accent-hover:#0ea5e9;
+    --text:#e2e8f0; --text-dim:#94a3b8; --success:#22c55e; --error:#ef4444; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  body{width:380px;margin:0;padding:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);}
+  .container{padding:20px;}
+  h1{font-size:15px;font-weight:600;margin:0 0 4px 0;}
+  .subtitle{font-size:12px;color:var(--text-dim);margin:0 0 18px 0;}
+  button.btn{width:100%;padding:12px 16px;background:var(--accent);color:#0f172a;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;}
+  button.btn:hover{background:var(--accent-hover);}
+  button.btn:disabled{background:var(--border);color:var(--text-dim);cursor:not-allowed;}
+  button.btn-secondary{background:var(--panel);color:var(--text);border:1px solid var(--border);}
+  button.btn-secondary:hover{border-color:var(--accent);}
+  .status-box{margin-top:16px;padding:12px 14px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.6;color:var(--text-dim);max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;}
+  .status-box .ok{color:var(--success);} .status-box .err{color:var(--error);} .status-box .info{color:var(--accent);}
+  .footer{margin-top:14px;font-size:11px;color:var(--text-dim);text-align:center;}
+  .spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin-right:6px;vertical-align:middle;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧳 OnSpot Audit Assistant</h1>
+    <p class="subtitle">Extraction Tripcard + Vouchers → Audit IA / Trip Card Elite</p>
+
+    <button id="analyzeBtn" class="btn">Analyser Page + Vouchers</button>
+    <button id="copyTripCardBtn" class="btn btn-secondary">📋 Copier pour Trip Card Elite</button>
+
+    <div id="status" class="status-box">En attente...</div>
+
+    <p class="footer">Analyse d'abord, puis choisis le format de copie voulu.</p>
+  </div>
+
+  <script src="mammoth.browser.min.js"></script>
+  <script src="xlsx.full.min.js"></script>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
