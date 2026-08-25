@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OnSpot">
+  <title>OnSpot</title>
+  <rect width="512" height="512" rx="108" fill="#ffffff"/>
+  <circle cx="156" cy="269" r="112" fill="#e9bd42"/>
+  <text x="245" y="352" fill="#3e6fd8" font-family="Arial Black, Arial, sans-serif" font-size="230" font-weight="900" letter-spacing="-24">S.</text>
+</svg>

@@ -33,3 +33,9 @@
 - [ ] Conserver Tickets, Vouchers, profil voyageur et onglets d’itinéraire utiles.
 - [ ] Ajouter le dossier source de l’extension dans le dépôt GitHub.
 - [ ] Pousser le commit et confirmer le SHA distant.
+
+## Favicon OnSpot Vercel
+
+- [ ] Préparer une icône carrée lisible à partir du logo OnSpot fourni.
+- [ ] Définir cette icône comme favicon de TripCard ELITE et de l’extension Chrome.
+- [ ] Pousser le commit puis confirmer que Vercel sert la nouvelle version.
