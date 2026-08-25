@@ -1,17 +1,13 @@
-# Renforcement TripCard ELITE — dossier Japon
+# Correction cache, rappels UTC et identité OnSpot
 
-- [ ] Cartographier séparément les blocs `activites`, `hotels`, `tous`, `trains`, `vouchersTab`, `vouchersSummary` et les compteurs de l’interface.
-- [ ] Ne plus traiter un bloc texte répété comme une collection unique : conserver la date de section et dédupliquer par prestation réelle.
-- [ ] Vérifier les métadonnées : référence, agence, créateur, dates, ID, forfait, statut des services, reminders et tickets.
-- [ ] Vérifier la présence et le statut des passeports/CNI dans les vouchers et les messages du dossier.
-- [ ] Parser hôtels, activités, transferts, trains, vols et documents avec date, heure, adresse, fournisseur et lieu de rendez-vous.
-- [ ] Ajouter les contrôles de cohérence chronologique, géographique et horaire, avec prudence lorsque les distances nécessitent une API cartographique.
-- [ ] Produire les dates de check-in vol à H-24, welcome call à H+5 après atterrissage et reconfirmations H-24.
-- [ ] Exploiter notes profil, exigences client et anniversaires lorsque présents.
-- [ ] Déterminer précisément les boutons/onglets que l’extension doit encore extraire.
-- [ ] Tester sur le dossier Japon, puis relancer TypeScript et la build.
-- [ ] Comparer le commit local, le commit distant et l’état Git.
-- [ ] Vérifier l’existence d’un déploiement Vercel distinct du dépôt GitHub.
-- [ ] Identifier pourquoi le lien consulté n’affiche pas la dernière version.
-- [ ] Déterminer si la V1 peut fonctionner sans API externe.
-- [ ] Évaluer l’usage futur éventuel de Gemini, DeepSeek ou d’une autre API gratuite.
+- [ ] Reproduire le crash `report.metadata.agency` avec un ancien rapport local.
+- [ ] Ajouter une migration ou une invalidation sûre des rapports stockés avant rendu.
+- [ ] Afficher une checklist opérationnelle des rappels avec date, heure UTC, type et statut.
+- [ ] Générer les check-in vols à H-24 en UTC.
+- [ ] Générer le welcome call H+5 après l’atterrissage en UTC.
+- [ ] Limiter H-24 aux activités et transferts dont le voucher indique une reconfirmation.
+- [ ] Vérifier pourquoi les activités et transferts du dossier Japon ne produisent pas encore les rappels attendus.
+- [ ] Stabiliser le logo horizontal OnSpot dans l’interface et créer une icône carrée pour le navigateur.
+- [ ] Comparer la version locale, le commit GitHub et le déploiement Vercel.
+- [ ] Tester le chargement à froid, le chargement avec ancien localStorage et le dossier Japon.
+- [ ] Synchroniser et livrer la correction finale.

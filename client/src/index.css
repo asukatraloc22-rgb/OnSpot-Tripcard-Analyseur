@@ -48,3 +48,25 @@ button:focus-visible,input:focus-visible { outline:2px solid var(--gold); outlin
 .control-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin:28px 0 36px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(255,253,248,.55); }.control-strip > div { min-width:0; padding:16px 18px 17px 0; margin-right:18px; border-right:1px solid var(--line); }.control-strip > div:last-child { border-right:0; margin-right:0; }.control-strip .fact-label,.control-strip b,.control-strip small { display:block; }.control-strip .fact-label { margin-bottom:8px; }.control-strip b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }.control-strip small { margin-top:5px; color:var(--ink-soft); font-size:9px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.amber-text { color:var(--amber) !important; }
 @media (max-width:900px) { .control-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }.control-strip > div:nth-child(2) { border-right:0; margin-right:0; }.control-strip > div:nth-child(-n+2) { border-bottom:1px solid var(--line); } }
 @media (max-width:520px) { .control-strip { grid-template-columns:1fr; }.control-strip > div,.control-strip > div:nth-child(2) { border-right:0; border-bottom:1px solid var(--line); margin-right:0; padding-right:0; }.control-strip > div:last-child { border-bottom:0; } }
+
+/* TripCard ELITE — operational reminder sheet. The checklist uses the paper dossier grammar: compact rows, gold timing marks, explicit UTC labels. */
+.brand { gap: 8px; }
+.brand img { width: 72px; height: 30px; object-fit: contain; object-position: left center; flex:none; background: #fffdf8; }
+.reminder-panel { margin: 34px 0 43px; padding: 20px; background: var(--white); border: 1px solid var(--line); border-top: 3px solid var(--gold); }
+.reminder-panel .panel-heading { margin-bottom: 16px; }
+.reminder-list { display: grid; gap: 0; }
+.reminder-row { display: grid; grid-template-columns: 126px minmax(0,1fr) auto; gap: 16px; align-items: center; padding: 14px 0; border-top: 1px dashed var(--line); }
+.reminder-row:first-child { border-top: 0; }
+.reminder-date { padding-left: 12px; border-left: 3px solid var(--gold); }
+.reminder-check-in .reminder-date { border-left-color: var(--petrol); }
+.reminder-welcome .reminder-date { border-left-color: var(--green); }
+.reminder-date b, .reminder-date small { display:block; }
+.reminder-date b { font: 12px "IBM Plex Mono",monospace; color: var(--petrol); }
+.reminder-date small { margin-top: 5px; font: 10px "IBM Plex Mono",monospace; color: var(--ink-soft); }
+.reminder-main { min-width:0; }
+.reminder-kind { display:block; margin-bottom: 4px; font: 9px "IBM Plex Mono",monospace; letter-spacing:.08em; text-transform:uppercase; color: var(--amber); }
+.reminder-main strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.reminder-main p { margin: 5px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.4; }
+.reminder-status { padding: 5px 7px; color: var(--amber); background: rgba(185,130,37,.12); font: 9px "IBM Plex Mono",monospace; text-transform:uppercase; }
+@media (max-width: 900px) { .reminder-row { grid-template-columns: 1fr auto; gap: 10px; } .reminder-date { grid-column: 1 / -1; } .reminder-main { grid-column: 1; } .reminder-status { grid-column: 2; grid-row: 2; } }
+@media (max-width: 640px) { .brand img { width: 62px; } .reminder-panel { padding: 15px; } .reminder-main strong { white-space: normal; } }
