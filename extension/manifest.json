@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "OnSpot Audit Assistant",
+  "version": "2.0.1",
+  "description": "Exporte une TripCard OnSpot et ses vouchers au format structuré pour TripCard ELITE.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://app.onspot.travel/*",
+    "https://*.onspot.travel/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "OnSpot Audit Assistant",
+    "default_icon": {
+      "16": "icons/onspot-16.png",
+      "32": "icons/onspot-32.png",
+      "48": "icons/onspot-48.png",
+      "128": "icons/onspot-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/onspot-16.png",
+    "32": "icons/onspot-32.png",
+    "48": "icons/onspot-48.png",
+    "128": "icons/onspot-128.png"
+  }
+}

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OnSpot Audit Assistant</title>
+<style>
+:root{--ink:#0c353a;--ink-2:#164a4f;--paper:#f8f5ed;--gold:#d8ad49;--line:#d9d3c6;--muted:#667275;--danger:#b34d42;--ok:#2d8065}*{box-sizing:border-box}body{width:392px;margin:0;background:var(--paper);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}.head{display:flex;gap:11px;align-items:center;padding:17px 18px 14px;background:var(--ink);color:#fff}.mark{width:36px;height:36px;border:1px solid #d5b15b;background:#fff;object-fit:contain}.title b{display:block;font-family:Georgia,serif;font-size:17px}.title span{display:block;margin-top:2px;color:#e0c16f;font:600 9px monospace;letter-spacing:.12em}main{padding:17px 18px 15px}.eyebrow{margin:0 0 7px;color:#87775c;font:700 9px monospace;letter-spacing:.1em;text-transform:uppercase}.lead{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.45}button{width:100%;border:0;border-radius:2px;padding:12px 13px;margin:0 0 8px;font-weight:700;font-size:13px;text-align:left;cursor:pointer;transition:transform .15s ease,background .15s ease}button:active{transform:scale(.98)}button:disabled{cursor:not-allowed;opacity:.55}.primary{background:var(--ink);color:#fff}.primary:hover{background:var(--ink-2)}.secondary{background:#fff;border:1px solid var(--line);color:var(--ink)}.download{background:#f5e6ba;color:#573f11}#status{min-height:116px;max-height:210px;overflow:auto;padding:11px;border:1px solid var(--line);background:#fff;color:var(--muted);font:11px/1.5 monospace;white-space:pre-wrap}.ok{color:var(--ok)}.err{color:var(--danger)}.info{color:#356e80}.warn{color:#9a722d}.spinner{display:inline-block;width:11px;height:11px;border:2px solid #b7c5c5;border-top-color:currentColor;border-radius:50%;animation:spin .7s linear infinite;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}footer{padding:11px 18px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:10px;line-height:1.4}.local{display:inline-flex;gap:5px;align-items:center;color:#437363;font-weight:700}.local i{width:6px;height:6px;border-radius:50%;background:#55ad84}
+</style>
+</head>
+<body>
+<header class="head"><img class="mark" src="icons/onspot-48.png" alt="OnSpot" /><div class="title"><b>OnSpot Audit Assistant</b><span>EXTRACTION · TRIPCARD ELITE</span></div></header>
+<main><p class="eyebrow">Contrôle de dossier</p><p class="lead">Extrait l’itinéraire, les tickets, les notes et les vouchers visibles, puis prépare un JSON structuré pour TripCard ELITE.</p><button id="analyzeBtn" class="primary">Analyser la TripCard et les vouchers</button><button id="copyTripCardBtn" class="secondary">Copier le JSON TripCard ELITE</button><button id="downloadTripCardBtn" class="download">Télécharger le JSON TripCard ELITE</button><div id="status">Ouvrez une TripCard OnSpot, puis lancez l’analyse.</div></main>
+<footer><span class="local"><i></i> Extraction locale</span><br />Aucune donnée n’est envoyée automatiquement. Les documents sont lus uniquement depuis la TripCard active.</footer>
+<script src="mammoth.browser.min.js"></script><script src="xlsx.full.min.js"></script><script type="module" src="popup.js"></script>
+</body>
+</html>

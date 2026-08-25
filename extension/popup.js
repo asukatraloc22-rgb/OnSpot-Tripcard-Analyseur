@@ -1,0 +1,435 @@
+// =========================================================================
+// OnSpot Audit Assistant — popup.js
+// =========================================================================
+
+import * as pdfjsLib from './pdf.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
+
+const analyzeBtn = document.getElementById('analyzeBtn');
+const copyTripCardBtn = document.getElementById('copyTripCardBtn');
+const downloadTripCardBtn = document.getElementById('downloadTripCardBtn');
+const statusBox = document.getElementById('status');
+
+let lastResult = null; // conserve le dernier résultat d'analyse pour les deux boutons
+
+function logStatus(message, type = 'info') {
+  const line = document.createElement('div');
+  line.className = type;
+  line.textContent = message;
+  statusBox.appendChild(line);
+  statusBox.scrollTop = statusBox.scrollHeight;
+}
+function clearStatus() { statusBox.innerHTML = ''; }
+function setLoading(btn, isLoading, label, defaultLabel) {
+  analyzeBtn.disabled = isLoading;
+  copyTripCardBtn.disabled = isLoading;
+  downloadTripCardBtn.disabled = isLoading;
+  if (isLoading) btn.innerHTML = `<span class="spinner"></span>${label}`;
+  else btn.textContent = defaultLabel;
+}
+
+// -------------------------------------------------------------------------
+// BOUTON 1 : Analyser Page + Vouchers
+// -------------------------------------------------------------------------
+analyzeBtn.addEventListener('click', async () => {
+  clearStatus();
+  setLoading(analyzeBtn, true, 'Ouverture de la page...', 'Analyser Page + Vouchers');
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) throw new Error("Impossible de récupérer l'onglet actif.");
+
+    logStatus('Onglet actif détecté : ' + tab.url, 'info');
+    setLoading(analyzeBtn, true, 'Extraction par onglet itinéraire...', 'Analyser Page + Vouchers');
+
+    const [injectionResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractPageContentPerTabAndFiles,
+    });
+
+    const pageData = injectionResult.result;
+    if (!pageData) throw new Error("Aucune donnée retournée depuis la page.");
+
+    logStatus(`Contenu extrait pour ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length} onglet(s) d'itinéraire.`, 'ok');
+    logStatus(`${pageData.pdfUrls.length} PDF(s), ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s) détecté(s).`, 'info');
+
+    // PDF
+    const pdfTexts = [];
+    for (let i = 0; i < pageData.pdfUrls.length; i++) {
+      setLoading(analyzeBtn, true, `PDF ${i + 1}/${pageData.pdfUrls.length}...`, 'Analyser Page + Vouchers');
+      try {
+        const text = await extractPdfTextFromUrl(pageData.pdfUrls[i]);
+        pdfTexts.push({ url: pageData.pdfUrls[i], text });
+        logStatus(`✓ PDF ${i + 1} extrait (${text.length} caractères).`, 'ok');
+      } catch (err) {
+        logStatus(`✗ PDF ${i + 1} échec : ${err.message}`, 'err');
+        pdfTexts.push({ url: pageData.pdfUrls[i], text: '[ERREUR extraction]' });
+      }
+    }
+
+    // DOCX
+    const docxTexts = [];
+    for (let i = 0; i < pageData.docxUrls.length; i++) {
+      setLoading(analyzeBtn, true, `DOCX ${i + 1}/${pageData.docxUrls.length}...`, 'Analyser Page + Vouchers');
+      try {
+        const text = await extractDocxTextFromUrl(pageData.docxUrls[i]);
+        docxTexts.push({ url: pageData.docxUrls[i], text });
+        logStatus(`✓ DOCX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+      } catch (err) {
+        logStatus(`✗ DOCX ${i + 1} échec : ${err.message}`, 'err');
+        docxTexts.push({ url: pageData.docxUrls[i], text: '[ERREUR extraction]' });
+      }
+    }
+
+    // XLSX
+    const xlsxTexts = [];
+    for (let i = 0; i < pageData.xlsxUrls.length; i++) {
+      setLoading(analyzeBtn, true, `XLSX ${i + 1}/${pageData.xlsxUrls.length}...`, 'Analyser Page + Vouchers');
+      try {
+        const text = await extractXlsxTextFromUrl(pageData.xlsxUrls[i]);
+        xlsxTexts.push({ url: pageData.xlsxUrls[i], text });
+        logStatus(`✓ XLSX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+      } catch (err) {
+        logStatus(`✗ XLSX ${i + 1} échec : ${err.message}`, 'err');
+        xlsxTexts.push({ url: pageData.xlsxUrls[i], text: '[ERREUR extraction]' });
+      }
+    }
+
+    if (pageData.imageUrls.length > 0) {
+      logStatus(`⚠ Images détectées (à vérifier à l'œil) :`, 'info');
+      pageData.imageUrls.forEach((u, i) => logStatus(`  [img ${i + 1}] ${u}`, 'info'));
+    }
+
+    lastResult = { pageData, pdfTexts, docxTexts, xlsxTexts };
+    const structured = buildTripCardPayload(lastResult);
+    logStatus(`✓ JSON structuré prêt : ${structured.services.length} prestation(s), ${structured.documents.length} document(s).`, 'ok');
+    logStatus('Utilise Copier ou Télécharger pour importer ce dossier dans TripCard ELITE.', 'info');
+
+  } catch (err) {
+    console.error(err);
+    logStatus('Erreur : ' + err.message, 'err');
+  } finally {
+    setLoading(analyzeBtn, false, '', 'Analyser Page + Vouchers');
+  }
+});
+
+// -------------------------------------------------------------------------
+// BOUTON 2 : Copier pour Trip Card Elite (JSON structuré)
+// -------------------------------------------------------------------------
+copyTripCardBtn.addEventListener('click', async () => {
+  if (!lastResult) {
+    logStatus('⚠ Lance d\'abord "Analyser Page + Vouchers".', 'err');
+    return;
+  }
+  const payload = buildTripCardPayload(lastResult);
+  await navigator.clipboard.writeText(JSON.stringify(payload));
+  logStatus('✅ JSON TripCard ELITE copié. Va sur l’outil puis clique « Coller depuis le presse-papiers ».', 'ok');
+});
+
+downloadTripCardBtn.addEventListener('click', () => {
+  if (!lastResult) { logStatus('⚠ Lance d’abord l’analyse de la TripCard.', 'err'); return; }
+  const payload = buildTripCardPayload(lastResult);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `onspot-tripcard-${payload.reference || 'export'}-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  logStatus('✓ Fichier JSON téléchargé. Il peut être importé directement dans TripCard ELITE.', 'ok');
+});
+
+// =========================================================================
+// Fonction injectée dans la page active — extraction PAR ONGLET
+// =========================================================================
+function extractPageContentPerTabAndFiles() {
+  return new Promise(async (resolve) => {
+    const mainTabDefs = [
+      { key: 'itineraireMain', labels: ['Itinéraire', 'Itinerary'] }
+    ];
+    const subTabDefs = [
+      { key: 'tous',         labels: ['Tous', 'Tout', 'All'] },
+      { key: 'hotels',       labels: ['Hôtels', 'Hotels', 'Hôtel', 'Hotel'] },
+      { key: 'vols',         labels: ['Vols', 'Vol', 'Flights', 'Flight'] },
+      { key: 'activites',    labels: ['Activités', 'Activité', 'Activities', 'Activity'] },
+      { key: 'locations',    labels: ['Locations', 'Location de voiture', 'Car rental', 'Cars'] },
+      { key: 'transferts',   labels: ['Transferts', 'Transfert', 'Transfers', 'Transfer'] },
+      { key: 'trains',       labels: ['Trains', 'Train'] }
+    ];
+    const vouchersTabDef = { key: 'vouchersTab', labels: ['Vouchers', 'Voucher', 'Documents'] };
+    const contextTabDefs = [
+      { key: 'ticketsTab', labels: ['Tickets', 'Ticket'] }
+    ];
+
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    function findTabElement(labels) {
+      const candidates = Array.from(document.querySelectorAll('button, a, [role="tab"], li, div[class*="tab" i]'));
+      for (const el of candidates) {
+        const text = (el.textContent || '').trim();
+        if (!text || text.length > 40) continue;
+        for (const label of labels) {
+          if (text.toLowerCase() === label.toLowerCase() || text.toLowerCase().startsWith(label.toLowerCase())) {
+            return el;
+          }
+        }
+      }
+      return null;
+    }
+
+    // Détection des fichiers par type — accumulée au fil des clics, jamais réinitialisée
+    const pdfUrlSet = new Set();
+    const docxUrlSet = new Set();
+    const xlsxUrlSet = new Set();
+    const imageUrlSet = new Set();
+
+    function classify(url) {
+      if (/\.pdf($|\?)/i.test(url)) pdfUrlSet.add(url);
+      else if (/\.docx($|\?)/i.test(url)) docxUrlSet.add(url);
+      else if (/\.(xlsx|xls)($|\?)/i.test(url)) xlsxUrlSet.add(url);
+      else if (/\.(png|jpe?g|webp|gif|heic)($|\?)/i.test(url)) imageUrlSet.add(url);
+    }
+
+    function scanFilesOnCurrentDOM() {
+      document.querySelectorAll('a[href]').forEach((a) => classify(a.href));
+      document.querySelectorAll('img[src]').forEach((img) => {
+        try { classify(new URL(img.src, window.location.href).href); } catch (e) {}
+      });
+      document.querySelectorAll('[data-url], [data-href], [data-pdf], [data-file]').forEach((el) => {
+        const val = el.getAttribute('data-url') || el.getAttribute('data-href') || el.getAttribute('data-pdf') || el.getAttribute('data-file');
+        if (val) { try { classify(new URL(val, window.location.href).href); } catch (e) {} }
+      });
+      document.querySelectorAll('embed[src], iframe[src], object[data]').forEach((el) => {
+        const src = el.getAttribute('src') || el.getAttribute('data');
+        if (src) { try { classify(new URL(src, window.location.href).href); } catch (e) {} }
+      });
+    }
+
+    // Capture de sécurité : tout le texte visible AVANT tout clic (bandeau du haut,
+    // panneau Voyageurs/Reminders/Notes, et le contenu de l'onglet par défaut).
+    // Sert de filet en cas d'onglet non détecté par la suite.
+    const initialSnapshot = (document.body.innerText || '').trim();
+    scanFilesOnCurrentDOM();
+
+    const itinerary = {};
+
+    // 1) Cliquer sur l'onglet principal "Itinéraire" pour révéler ses sous-onglets
+    const mainEl = findTabElement(mainTabDefs[0].labels);
+    if (mainEl) {
+      try {
+        mainEl.click();
+        await sleep(450);
+        scanFilesOnCurrentDOM();
+      } catch (e) {}
+    }
+
+    // 2) Chercher/cliquer chaque sous-onglet, maintenant qu'ils devraient être dans le DOM
+    for (const def of subTabDefs) {
+      const el = findTabElement(def.labels);
+      if (el) {
+        try {
+          el.click();
+          await sleep(450);
+          itinerary[def.key] = (document.body.innerText || '').trim();
+          scanFilesOnCurrentDOM();
+        } catch (e) {
+          itinerary[def.key] = null;
+        }
+      } else {
+        itinerary[def.key] = null;
+      }
+    }
+
+    // 3) Cliquer enfin sur l'onglet principal "Vouchers"
+    const vouchersEl = findTabElement(vouchersTabDef.labels);
+    if (vouchersEl) {
+      try {
+        vouchersEl.click();
+        await sleep(450);
+        itinerary[vouchersTabDef.key] = (document.body.innerText || '').trim();
+        scanFilesOnCurrentDOM();
+      } catch (e) {
+        itinerary[vouchersTabDef.key] = null;
+      }
+    } else {
+      itinerary[vouchersTabDef.key] = null;
+    }
+
+    // 4) Les éléments hors itinéraire sont critiques pour les plans de vol et actions H-24.
+    for (const def of contextTabDefs) {
+      const el = findTabElement(def.labels);
+      if (!el) { itinerary[def.key] = null; continue; }
+      try { el.click(); await sleep(450); itinerary[def.key] = (document.body.innerText || '').trim(); scanFilesOnCurrentDOM(); }
+      catch (e) { itinerary[def.key] = null; }
+    }
+
+    resolve({
+      itinerary,
+      initialSnapshot,
+      pdfUrls: Array.from(pdfUrlSet),
+      docxUrls: Array.from(docxUrlSet),
+      xlsxUrls: Array.from(xlsxUrlSet),
+      imageUrls: Array.from(imageUrlSet),
+      pageUrl: window.location.href,
+      pageTitle: document.title
+    });
+  });
+}
+
+// =========================================================================
+// Extractions de fichiers
+// =========================================================================
+async function extractPdfTextFromUrl(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    fullText += `\n--- Page ${p} ---\n${content.items.map(i => i.str).join(' ')}\n`;
+  }
+  return fullText.trim();
+}
+
+async function extractDocxTextFromUrl(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer });
+  return result.value.trim();
+}
+
+async function extractXlsxTextFromUrl(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const workbook = window.XLSX.read(arrayBuffer, { type: 'array' });
+  let text = '';
+  workbook.SheetNames.forEach((sheetName) => {
+    text += `\n--- Feuille : ${sheetName} ---\n`;
+    text += window.XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+    text += '\n';
+  });
+  return text.trim();
+}
+
+// =========================================================================
+// Construction des prompts / résumés
+// =========================================================================
+function cleanText(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
+
+function serviceTypeFromSection(section) {
+  const mapping = { 'Hôtels': 'hotel', 'Vols': 'flight', 'Activités': 'activity', 'Transferts': 'transfer', 'Trains': 'train', 'Locations': 'car-rental' };
+  return mapping[section] || 'other';
+}
+
+function extractStructuredServices(timeline, referenceText = '') {
+  const lines = String(timeline || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const sectionNames = new Set(['Hôtels', 'Vols', 'Activités', 'Transferts', 'Trains', 'Locations']);
+  const monthPattern = /^(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)$/i;
+  const months = { jan: '01', janv: '01', févr: '02', mars: '03', avr: '04', mai: '05', juin: '06', juil: '07', août: '08', sept: '09', oct: '10', nov: '11', déc: '12' };
+  const year = (String(referenceText).match(/\b20\d{2}\b/) || String(timeline).match(/\b20\d{2}\b/) || [])[0] || new Date().getUTCFullYear();
+  const services = []; let currentDate = null; let section = null;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]; const date = line.match(monthPattern);
+    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = null; continue; }
+    if (sectionNames.has(line)) { section = line; continue; }
+    if (!section || !currentDate || /^(Rechercher|Tableau|Trip_|Ajouter|Reminders|Notes|Services|Métadonnées|Tickets)/i.test(line)) continue;
+    const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const location = hasTime ? lines[index + 2] : lines[index + 1];
+    if (!title || !location || sectionNames.has(title) || sectionNames.has(location)) continue;
+    if (type === 'hotel' && !/,\s*[A-Z]{2}$/i.test(location)) continue;
+    if (['transfer', 'train', 'flight'].includes(type) && !location.includes('→')) continue;
+    if (title.length > 180 || location.length > 260) continue;
+    services.push({ id: `${type}-${services.length + 1}`, type, date: currentDate, time: hasTime ? line : null, title: cleanText(title), location: cleanText(location), source: 'itinerary.tous' });
+    index += hasTime ? 2 : 1;
+  }
+  return Array.from(new Map(services.map((service) => [`${service.type}|${service.date}|${service.title}|${service.location}`, service])).values());
+}
+
+function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
+  const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
+  const reference = (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || (allText.match(/Trip\s+(\d{6,})/i) || [])[1] || 'sans-reference';
+  const travelers = Array.from(new Set(Array.from(allText.matchAll(/\b(?:M\.|MR\.|Mme|MM\.)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)\s+([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)/g)).map((match) => `${match[1]} ${match[2]}`)));
+  const files = [
+    ...pdfTexts.map((item) => ({ kind: 'pdf', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.pdf', text: item.text })),
+    ...docxTexts.map((item) => ({ kind: 'docx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.docx', text: item.text })),
+    ...xlsxTexts.map((item) => ({ kind: 'xlsx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.xlsx', text: item.text }))
+  ].map((file) => {
+    const filename = file.name.toLowerCase();
+    const content = `${file.name}\n${file.text}`.toLowerCase();
+    const flightPlan = /billet|e[- ]?ticket|boarding|carte d.?embarquement|airlines?|avion|flight/.test(filename) || /compagnie émettrice|numéro de billet|votre e-ticket|classe\s*:\s*(business|economy|premium)/.test(content);
+    const identity = /passeport|passport|\bcni\b|carte nationale d.?identité/.test(filename) || /passeport|passport|carte nationale d.?identité/.test(content);
+    return { ...file, category: flightPlan ? 'flight-plan' : identity ? 'identity' : 'voucher' };
+  });
+  const profileNotes = Array.from(new Set((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)));
+  const ticketsText = pageData.itinerary?.ticketsTab || '';
+  const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
+  return {
+    schemaVersion: '2.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
+    reference, travelers,
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsText },
+    services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
+    documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, vouchers: files.filter((file) => file.category === 'voucher').length },
+    itinerary: pageData.itinerary, vouchersSummary: buildVouchersSummaryText({ pageData, pdfTexts, docxTexts, xlsxTexts })
+  };
+}
+
+function buildVouchersSummaryText({ pdfTexts, docxTexts, xlsxTexts, pageData }) {
+  const parts = [];
+  if (pageData.initialSnapshot) {
+    parts.push(`### BANDEAU & PANNEAU LATÉRAL (capture avant tout clic — pays, dates, agence, voyageurs, reminders, notes)\n${pageData.initialSnapshot}`);
+  }
+  pdfTexts.forEach((p, i) => parts.push(`### VOUCHER PDF ${i + 1}\n${p.url}\n\n${p.text}`));
+  docxTexts.forEach((d, i) => parts.push(`### VOUCHER DOCX ${i + 1}\n${d.url}\n\n${d.text}`));
+  xlsxTexts.forEach((x, i) => parts.push(`### VOUCHER XLSX ${i + 1}\n${x.url}\n\n${x.text}`));
+  if (pageData.imageUrls.length > 0) {
+    parts.push(`### IMAGES DÉTECTÉES (à vérifier manuellement)\n${pageData.imageUrls.join('\n')}`);
+  }
+  return parts.join('\n\n---------------------------------------------\n\n');
+}
+
+function buildAuditPrompt({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
+  const itinSection = Object.entries(pageData.itinerary)
+    .map(([key, val]) => `### ${key.toUpperCase()}\n${val || '(vide / onglet non trouvé)'}`)
+    .join('\n\n');
+
+  const vouchersSection = buildVouchersSummaryText({ pdfTexts, docxTexts, xlsxTexts, pageData });
+
+  return `# AUDIT DE COHÉRENCE — DOSSIER DE VOYAGE ONSPOT
+
+Tu es un auditeur expert spécialisé dans la vérification de dossiers de voyage. Compare ligne par ligne l'ITINÉRAIRE ci-dessous avec le contenu de chaque VOUCHER, et signale la moindre incohérence.
+
+## CONTEXTE
+- Page source : ${pageData.pageUrl}
+- Titre : ${pageData.pageTitle}
+
+## POINTS DE CONTRÔLE
+1. Noms des voyageurs (orthographe, nombre de personnes)
+2. Dates (check-in/out, vols, activités)
+3. Prestations réservées (type de chambre, catégorie de vol, transfert, activité)
+4. Régimes alimentaires / allergies mentionnés sur un document mais absents d'un autre
+5. Effectifs par réservation
+6. Références / numéros de confirmation
+7. Adresses et lieux
+8. Horaires
+9. Statut de paiement
+10. Éléments manquants (prestation sans voucher, ou inversement)
+
+## FORMAT DE RÉPONSE
+- Tableau des incohérences (Type | Itinéraire | Voucher | Détail)
+- Points critiques / Points mineurs
+- Conclusion : conforme ou à corriger, avec liste des actions
+
+---
+## ITINÉRAIRE (par onglet)
+${itinSection}
+
+---
+## VOUCHERS EXTRAITS
+${vouchersSection || '(aucun voucher détecté)'}
+
+---
+Effectue l'audit complet maintenant.`;
+}
