@@ -79,3 +79,55 @@ La V1 sera une application front-end statique, sans dépendance obligatoire à u
 - Le terracotta est réservé aux anomalies, avertissements, contrôles non résolus ou états nécessitant l’attention ; il ne sert pas d’emphase décorative dans le hero.
 - Même l’état vide présente une trame d’audit visible : domaines contrôlés, langage de statut, structure du dossier et motif de trajet/ticket avant toute interaction.
 - Les titres Fraunces restent premium et éditoriaux, mais leur formulation répond à une question de contrôle ou décrit une action d’agent ; ils ne deviennent pas une accroche de page marketing.
+
+## Refonte retenue — Liquid Glass OnSpot
+
+### Design Movement
+**Liquid Glass opérationnel**, inspiré des surfaces optiques contemporaines d’iOS 26, appliqué avec retenue à un environnement d’audit : couches translucides, bordures lumineuses, profondeur douce et indices de statut immédiatement lisibles.
+
+### Core Principles
+1. **Verre au service du signal.** La transparence sépare les niveaux d’information ; elle ne doit jamais réduire le contraste des données de contrôle.
+2. **Profondeur fonctionnelle.** La navigation, le dossier actif, les alertes et les preuves vivent sur des plans visuels distincts sans simuler une interface décorative.
+3. **Couleur de marque, rôle précis.** Le bleu OnSpot conduit l’action, le jaune OnSpot certifie et attire l’œil, les couleurs d’alerte restent réservées aux écarts.
+4. **Densité sereine.** Les états critiques restent faciles à scanner sur un grand écran sans transformer l’outil en tableau de bord anxiogène.
+
+### Color Philosophy
+Le fond devient un **bleu nuit OnSpot** très léger, traversé de halos blancs et jaunes floutés. Les surfaces sont des verres blancs à opacité contrôlée ; le **bleu royal OnSpot** (`#3E6FD8`) est la couleur d’action et le **jaune OnSpot** (`#E9BD42`) la couleur de validation, de progression et de repère. Le texte opérationnel reste bleu pétrole très foncé pour préserver la lisibilité sur le verre.
+
+### Layout Paradigm
+Un **dock latéral flottant** regroupe la mission et la navigation. Le contenu principal repose sur un espace fluide composé d’un bandeau d’identité en verre, de cartes à niveaux de profondeur variables et d’un rail d’analyse suspendu. Aucun panneau ne doit ressembler à une carte blanche standard collée sur un fond.
+
+### Signature Elements
+- Un halo OnSpot bleu-jaune diffus derrière les surfaces principales.
+- Des bordures internes à un pixel blanc translucide et des reflets directionnels discrets.
+- Des capsules de statut, compteurs et contrôles flottants comme une couche optique au-dessus des données.
+
+### Interaction Philosophy
+Les éléments cliquables se soulèvent légèrement au survol, les actions primaires se densifient en bleu, et les onglets actifs se comportent comme une pilule de verre coloré. La rapidité opérationnelle reste prioritaire : aucun effet ne retarde un import, un filtre ou une décision.
+
+### Animation
+Sur entrée, les panneaux de contexte apparaissent avec un déplacement vertical de 8 px et une opacité progressive en moins de 260 ms. Les survols utilisent uniquement `transform`, `border-color`, `background-color` et `opacity`. Le mouvement est désactivé pour `prefers-reduced-motion`.
+
+### Typography System
+**IBM Plex Sans** devient la police principale, plus nette sur les surfaces translucides. **Fraunces** est conservée seulement pour les titres de voyage et moments de synthèse. **IBM Plex Mono** reste dédiée aux dates, références, sources, statuts et échéances UTC.
+
+### Brand Essence
+**TripCard ELITE transforme la vérification d’un voyage en une lecture calme, lumineuse et actionnable, pensée pour l’agent OnSpot qui doit décider vite.**
+
+Personnalité : **lumineux, précis, maîtrisé**.
+
+### Brand Voice
+Les titres restent factuels et apaisés : « Le dossier est prêt à être lu. » et « Les actions nécessaires restent visibles, sans bruit. » Les boutons restent orientés métier : « Importer le dossier », « Ouvrir les blocages », « Consulter la preuve ».
+
+### Wordmark & Logo
+Le mot-symbole conserve le logo OnSpot, accompagné de « TripCard » et du niveau ELITE dans une construction plus légère, posée sur le dock en verre. L’icône O–S–point devient le repère de l’onglet, du dock et des éléments d’identité.
+
+### Signature Brand Color
+**OnSpot Blue — `#3E6FD8`**. Il devient la couleur d’action immédiatement reconnaissable de TripCard ELITE.
+
+### Amendements de style validés
+
+- Avant import, l’écran doit se lire comme une **station de contrôle prête** : trame, flux Extension → JSON → audit local, domaines et statut priment sur toute accroche éditoriale.
+- Chaque niveau de verre a une fonction visuelle explicite : **dock** pour la navigation, **mission** pour l’identité du dossier, **preuve** pour les données, **action** pour les alertes et **annotation** pour les sources.
+- La ligne de trajet, les bordures perforées, les balises mono de source et les repères de contrôle se répètent sur les rappels, preuves, étapes et alertes.
+- Le bleu OnSpot porte les actions et interactions ; le jaune OnSpot indique la progression ou la validation et ne sert pas de couleur décorative de fond générale.

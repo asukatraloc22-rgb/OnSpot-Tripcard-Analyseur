@@ -1,10 +1,10 @@
-/* TripCard ELITE — page principale. Design reminder: Poste de contrôle papier, asymétrie éditoriale, talons de billet, signal clair avant détail. */
+/* TripCard ELITE — Liquid Glass OnSpot: dock translucide, surfaces optiques, bleu d’action, jaune de validation, lisibilité opérationnelle. */
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, Archive, ArrowDownToLine, Check, ChevronRight, ClipboardPaste, FileJson, Flag, Gauge, Inbox, MapPin, Paperclip, Plane, RotateCcw, Search, ShieldCheck, Sparkles, Upload, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { analyzeTrip, demoPayload, normalizeReport, type AuditIssue, type AuditReminder, type AuditReport, type AuditStatus, type DocumentCheck, type TripStep } from "@/lib/audit";
 
-const markUrl = "/manus-storage/onspot-official_5d2d50fc.webp";
+const markUrl = "/onspot-favicon.svg";
 
 type Tab = "overview" | "itinerary" | "issues" | "documents";
 

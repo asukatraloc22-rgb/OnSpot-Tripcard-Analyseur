@@ -39,3 +39,11 @@
 - [ ] Préparer une icône carrée lisible à partir du logo OnSpot fourni.
 - [ ] Définir cette icône comme favicon de TripCard ELITE et de l’extension Chrome.
 - [ ] Pousser le commit puis confirmer que Vercel sert la nouvelle version.
+
+## Refonte Liquid Glass OnSpot
+
+- [ ] Définir les tokens verre, bleu OnSpot, jaune OnSpot, blanc et ombres optiques.
+- [ ] Recomposer la navigation desktop, l’accueil, les cartes et panneaux sur des surfaces glass.
+- [ ] Adapter les états de rapport, documents et rappels à la nouvelle hiérarchie visuelle.
+- [ ] Vérifier la lisibilité desktop et mobile, puis intégrer les améliorations de style retenues.
+- [ ] Pousser la refonte et confirmer le déploiement Vercel sur le même SHA.
