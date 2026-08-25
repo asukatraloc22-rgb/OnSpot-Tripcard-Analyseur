@@ -1,9 +1,12 @@
-# Checklist rappels et identité OnSpot
+# Périmètre opérationnel validé
 
-- [ ] Vérifier la version en ligne et le dernier SHA GitHub/Vercel.
-- [ ] Vérifier que les rappels vols, welcome calls et activités sont visibles dans la synthèse.
-- [ ] Clarifier les libellés, dates, heures et statuts « à faire » de la checklist.
-- [ ] Corriger le cadrage du logo OnSpot dans la sidebar et sur la page.
-- [ ] Vérifier le favicon OnSpot dans le document HTML et sur l’onglet navigateur.
-- [ ] Tester la build, le mode démo et un chargement à froid.
-- [ ] Créer un checkpoint, le pousser systématiquement sur GitHub et confirmer le SHA du déploiement Vercel.
+- [ ] Comparer chaque prestation d’itinéraire avec son voucher associé.
+- [ ] Vérifier la chronologie des vols, nuits, activités, transferts, ferries et voitures.
+- [ ] Détecter séparément les plans de vol manquants, indépendamment des autres documents.
+- [ ] Vérifier passeports/CNI, hôtels, transports, activités et vouchers manquants ou non finalisés.
+- [ ] Contrôler les adresses, lieux de rendez-vous et distances lorsqu’une comparaison fiable est possible.
+- [ ] Générer une synthèse d’actions exploitable par l’agent.
+- [ ] Utiliser le logo OnSpot fourni depuis une URL d’asset web stable.
+- [ ] Configurer le même asset ou une version favicon compatible pour l’onglet Chrome.
+- [ ] Tester localement, sur le dossier Japon et en production.
+- [ ] Pousser systématiquement le checkpoint final sur GitHub et vérifier le SHA Vercel.

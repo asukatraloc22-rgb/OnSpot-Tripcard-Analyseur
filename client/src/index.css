@@ -78,3 +78,17 @@ button:focus-visible,input:focus-visible { outline:2px solid var(--gold); outlin
 .reminder-summary span { color:var(--ink-soft); font-size:10px; line-height:1.25; }
 .brand img { border:1px solid rgba(214,168,79,.35); padding:2px 4px; }
 @media (max-width:640px) { .reminder-summary { grid-template-columns:1fr; } }
+
+/* TripCard ELITE — documentary matrix: each required file family has an explicit operational state. */
+.document-check-list { display:grid; gap:0; margin-top:18px; border-top:1px solid var(--line); }
+.document-check-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 0; border-bottom:1px dotted var(--line-strong); }
+.document-check-row b { display:block; color:var(--petrol); font-size:12px; }
+.document-check-row small { display:block; max-width:470px; margin-top:4px; color:var(--ink-soft); font-size:11px; line-height:1.35; }
+.document-status { display:inline-flex; align-items:center; gap:6px; flex:none; padding:5px 8px; font:600 9px "IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.05em; }
+.document-status > span { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.document-present { color:#39755e; background:#e9f1e9; }
+.document-pending { color:#9a7128; background:#f9efd2; }
+.document-missing { color:#a04c3d; background:#f9e4df; }
+.document-not-applicable { color:#77746d; background:#eceae3; }
+.brand-logo { display:block; width:72px; height:30px; object-fit:contain; object-position:left center; background:#fff; }
+@media (max-width:640px) { .document-check-row { align-items:flex-start; flex-direction:column; gap:8px; } .document-check-row small { max-width:none; } }
