@@ -10,3 +10,8 @@
 - [ ] Exploiter notes profil, exigences client et anniversaires lorsque présents.
 - [ ] Déterminer précisément les boutons/onglets que l’extension doit encore extraire.
 - [ ] Tester sur le dossier Japon, puis relancer TypeScript et la build.
+- [ ] Comparer le commit local, le commit distant et l’état Git.
+- [ ] Vérifier l’existence d’un déploiement Vercel distinct du dépôt GitHub.
+- [ ] Identifier pourquoi le lien consulté n’affiche pas la dernière version.
+- [ ] Déterminer si la V1 peut fonctionner sans API externe.
+- [ ] Évaluer l’usage futur éventuel de Gemini, DeepSeek ou d’une autre API gratuite.
