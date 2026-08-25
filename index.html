@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trip Card Elite Pro — Audit Complet</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#f8f7f4;
+    --card:#ffffff;
+    --ink:#1c2530;
+    --ink-light:#616b78;
+    --navy:#152a42;
+    --navy-soft:#1f3a5c;
+    --gold:#b28a3d;
+    --gold-soft:#f9f5ec;
+    --border:#e5e0d3;
+    --success:#2f7d5b;
+    --danger:#b3462c;
+    --warning:#d4840e;
+  }
+
+  *{box-sizing:border-box;}
+
+  body{
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    line-height:1.55;
+    margin:0;
+    padding:36px 16px 80px;
+    display:flex;
+    justify-content:center;
+  }
+
+  .wrap{ max-width:900px; width:100%; }
+
+  h1{ font-family:'Playfair Display',serif; font-size:32px; font-weight:700; margin:0 0 8px; color:var(--navy); }
+  h2{ font-family:'Playfair Display',serif; font-size:20px; font-weight:700; color:var(--navy); margin:20px 0 12px; }
+
+  .masthead{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:32px;
+    margin-bottom:24px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.02);
+    position:relative;
+    overflow:hidden;
+  }
+  .masthead::before{
+    content:"";
+    position:absolute; top:0; left:0; right:0; height:4px;
+    background:linear-gradient(90deg, var(--navy), var(--gold));
+  }
+
+  .dossier-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+    gap:16px; margin-top:20px; padding-top:20px; border-top:1px solid var(--border);
+  }
+  .field{ display:flex; flex-direction:column; gap:4px; }
+  .field label{ font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:700; color:var(--ink-light); }
+  .field input, .field select{
+    font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:var(--ink);
+    border:none; border-bottom:1px solid var(--border); padding:4px 0; background:transparent;
+  }
+  .field input:focus, .field select:focus{ outline:none; border-bottom-color:var(--gold); }
+
+  .btn{
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    border-radius:6px;
+    padding:9px 16px;
+    cursor:pointer;
+    border:1px solid transparent;
+    transition:all .15s ease;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-primary{ background:var(--navy); color:#fff; }
+  .btn-primary:hover{ background:var(--navy-soft); box-shadow:0 4px 12px rgba(21,42,66,0.15); }
+  .btn-secondary{ background:var(--gold); color:#fff; }
+  .btn-secondary:hover{ background:#a07230; }
+  .btn-ghost{ background:#fff; color:var(--ink); border-color:var(--border); }
+  .btn-ghost:hover{ border-color:var(--gold); }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
+  .step-container{
+    background:var(--card); border:1px solid var(--border);
+    border-radius:12px; margin-bottom:24px; box-shadow:0 2px 8px rgba(0,0,0,0.02);
+    overflow:hidden;
+  }
+  .step-header{
+    display:flex; align-items:center; gap:16px; padding:20px 24px;
+    background:#faf9f7; border-bottom:1px solid var(--border);
+  }
+  .step-num{
+    width:28px; height:28px; border-radius:50%; background:var(--navy);
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:13px; flex-shrink:0;
+  }
+  .step-title{ font-family:'Playfair Display',serif; font-size:18px; font-weight:700; color:var(--navy); flex:1; }
+  .step-body{ padding:24px; }
+
+  textarea.code-input{
+    width:100%; min-height:100px; font-family:'IBM Plex Mono',monospace; font-size:12px;
+    color:var(--ink); border:1px solid var(--border); border-radius:8px;
+    padding:12px; resize:vertical; background:#fff;
+  }
+
+  /* Checklist Compacte */
+  .checklist-container{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+    gap:12px; margin:20px 0; padding:16px; background:var(--gold-soft);
+    border:1px solid #ebdcb8; border-radius:8px;
+  }
+  .check-item{
+    display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600;
+  }
+  .check-badge{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:20px; height:20px; border-radius:50%; font-size:11px; font-weight:700;
+  }
+  .check-badge.ok{ background:var(--success); color:#fff; }
+  .check-badge.missing{ background:var(--warning); color:#fff; }
+  .check-badge.error{ background:var(--danger); color:#fff; }
+
+  /* Audit Results */
+  .audit-results{ display:none; margin-top:20px; }
+  .audit-status{
+    padding:16px; border-radius:8px; margin-bottom:16px; font-weight:600;
+    display:flex; align-items:center; gap:12px; font-size:14px;
+  }
+  .audit-status.pass{
+    background:#e8f5e9; border:1px solid var(--success); color:var(--success);
+  }
+  .audit-status.fail{
+    background:#ffebee; border:1px solid var(--danger); color:var(--danger);
+  }
+
+  .audit-card{
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+    padding:16px; margin-bottom:12px;
+  }
+  .audit-card-title{
+    font-size:13px; font-weight:700; color:var(--navy); margin-bottom:10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .audit-item{
+    font-size:12px; line-height:1.5; padding:6px 0; border-bottom:1px dashed var(--border);
+    display:flex; gap:8px; align-items:flex-start;
+  }
+  .audit-item:last-child{ border-bottom:none; }
+  .audit-icon{ flex-shrink:0; }
+
+  .badge-critical{ display:inline-block; background:var(--danger); color:#fff; font-size:10px; font-weight:700; padding:3px 6px; border-radius:3px; }
+  .badge-warning{ display:inline-block; background:var(--warning); color:#fff; font-size:10px; font-weight:700; padding:3px 6px; border-radius:3px; }
+  .badge-info{ display:inline-block; background:var(--navy); color:#fff; font-size:10px; font-weight:700; padding:3px 6px; border-radius:3px; }
+
+  /* Timeline Compact */
+  .timeline-compact{ display:none; margin:20px 0; }
+  .day-row{
+    display:grid; grid-template-columns:40px 1fr; gap:12px; padding:10px 0; border-bottom:1px dashed var(--border);
+    align-items:flex-start;
+  }
+  .day-row:last-child{ border-bottom:none; }
+  .day-num{
+    width:32px; height:32px; border-radius:50%; background:var(--navy); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex-shrink:0;
+  }
+  .day-events{ display:flex; flex-direction:column; gap:4px; }
+  .event-badge{
+    font-size:11px; color:var(--ink-light); padding:2px 6px; background:var(--border); border-radius:3px;
+    display:inline-flex; align-items:center; gap:3px; width:fit-content;
+  }
+
+  .toolbar{
+    display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;
+  }
+
+  @media print {
+    body{ background:#fff; padding:0; }
+    .btn, .toolbar{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1>Trip Card Elite Pro</h1>
+    <p style="margin:8px 0 0; color:var(--ink-light); font-size:14px;">Audit complet & vérification de dossiers de voyage</p>
+    
+    <div class="dossier-grid">
+      <div class="field">
+        <label>Destination</label>
+        <input type="text" id="inp-dest" placeholder="Crète">
+      </div>
+      <div class="field">
+        <label>Dates</label>
+        <input type="text" id="inp-dates" placeholder="15-22 juil">
+      </div>
+      <div class="field">
+        <label>Clients</label>
+        <input type="text" id="inp-noms" placeholder="Mr & Mme Martin">
+      </div>
+      <div class="field">
+        <label>Ref Dossier</label>
+        <input type="text" id="inp-ref" placeholder="TCR-2024-001">
+      </div>
+      <div class="field">
+        <label>Clé API #1</label>
+        <input type="password" id="api-key-1" placeholder="Primary">
+      </div>
+      <div class="field">
+        <label>Clé API #2</label>
+        <input type="password" id="api-key-2" placeholder="Fallback">
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-ghost" id="resetBtn">🔄 Réinitialiser</button>
+    <button class="btn btn-ghost" id="printBtn">🖨️ Imprimer</button>
+  </div>
+
+  <!-- ÉTAPE 1: Import Extension -->
+  <div class="step-container">
+    <div class="step-header">
+      <div class="step-num">1</div>
+      <div class="step-title">Données Extension</div>
+    </div>
+    <div class="step-body">
+      <p style="margin:0 0 12px; font-size:13px; color:var(--ink-light);">Collez le JSON complet de l'extension Chrome (données du dossier OnSpot).</p>
+      <textarea class="code-input" id="extension-data" placeholder='{"destination":"...","voyageurs":"...","dates":"...","itineraire":[...]}'></textarea>
+      <button class="btn btn-primary" id="btn-paste-data" style="margin-top:12px;">📋 Traiter les données</button>
+    </div>
+  </div>
+
+  <!-- ÉTAPE 2: Résumé & Checklist -->
+  <div class="step-container" id="step-checklist" style="display:none;">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div class="step-title">Checklist Rapide</div>
+    </div>
+    <div class="step-body">
+      <h2>État du dossier</h2>
+      <div class="checklist-container" id="checklist-items"></div>
+      
+      <h2>Timeline Compacte</h2>
+      <div class="timeline-compact" id="timeline-compact"></div>
+    </div>
+  </div>
+
+  <!-- ÉTAPE 3: Audit Exhaustif -->
+  <div class="step-container" id="step-audit" style="display:none;">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div class="step-title">Audit Exhaustif</div>
+    </div>
+    <div class="step-body">
+      <button class="btn btn-primary" id="btn-run-audit">🔍 Lancer l'Audit Complet</button>
+      <div class="audit-results" id="audit-results"></div>
+    </div>
+  </div>
+
+  <!-- ÉTAPE 4: Actions -->
+  <div class="step-container" id="step-actions" style="display:none;">
+    <div class="step-header">
+      <div class="step-num">4</div>
+      <div class="step-title">Messages & Actions</div>
+    </div>
+    <div class="step-body">
+      <button class="btn btn-secondary" id="btn-msg-welcome" style="margin-right:10px;">👋 Message Bienvenue</button>
+      <button class="btn btn-secondary" id="btn-msg-h24">⏰ Rappel H-24</button>
+      <textarea class="code-input" id="msg-output" placeholder="Les messages générés apparaîtront ici..." style="margin-top:12px; display:none;"></textarea>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  let currentData = null;
+  let auditResults = null;
+
+  // ============ Dual API Gemini ============
+  async function callGemini(prompt, system, forceJSON, preferFirst = true){
+    const key1 = document.getElementById('api-key-1')?.value || localStorage.getItem('gemini-api-1');
+    const key2 = document.getElementById('api-key-2')?.value || localStorage.getItem('gemini-api-2');
+    
+    const keys = preferFirst ? [key1, key2] : [key2, key1];
+    
+    for(let i = 0; i < keys.length; i++){
+      const apiKey = keys[i];
+      if(!apiKey) continue;
+      
+      try {
+        const payload = {
+          model: "gemini-flash-latest",
+          messages: [{ role: "user", content: prompt }],
+          system: system,
+          temperature: forceJSON ? 0 : 0.7,
+          max_tokens: 2500,
+        };
+
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if(res.ok){
+          const data = await res.json();
+          const text = data.choices?.[0]?.message?.content || "";
+          if(localStorage && apiKey === key1) localStorage.setItem('gemini-api-1', apiKey);
+          if(localStorage && apiKey === key2) localStorage.setItem('gemini-api-2', apiKey);
+          return text;
+        }
+        
+        if(res.status === 429 || res.status === 503){
+          console.log(`API ${i+1} saturée, essai suivante...`);
+          continue;
+        }
+        
+        throw new Error(`API Error: ${res.status}`);
+      } catch(e){
+        console.warn(`Tentative ${i+1} échouée:`, e.message);
+        continue;
+      }
+    }
+    
+    throw new Error("Aucune clé API disponible ou toutes saturées.");
+  }
+
+  // ============ ÉTAPE 1: Traiter données extension ============
+  document.getElementById('btn-paste-data').addEventListener('click', async (e) => {
+    const raw = document.getElementById('extension-data').value.trim();
+    if(!raw){ alert("Collez les données JSON d'abord."); return; }
+
+    try {
+      currentData = JSON.parse(raw);
+      
+      // Auto-fill
+      if(currentData.destination) document.getElementById('inp-dest').value = currentData.destination;
+      if(currentData.voyageurs) document.getElementById('inp-noms').value = currentData.voyageurs;
+      if(currentData.periode) document.getElementById('inp-dates').value = currentData.periode;
+      if(currentData.reference) document.getElementById('inp-ref').value = currentData.reference;
+
+      renderChecklist(currentData);
+      renderTimelineCompact(currentData);
+      
+      document.getElementById('step-checklist').style.display = 'block';
+      document.getElementById('step-audit').style.display = 'block';
+      document.getElementById('step-actions').style.display = 'block';
+      
+      alert("Données chargées ✓");
+    } catch(err){
+      alert("Erreur JSON: " + err.message);
+    }
+  });
+
+  // ============ Checklist Visuelle ============
+  function renderChecklist(data){
+    const items = [
+      { key: 'destination', label: 'Destination', value: data.destination },
+      { key: 'voyageurs', label: 'Voyageurs', value: data.voyageurs },
+      { key: 'periode', label: 'Période', value: data.periode },
+      { key: 'itineraire', label: 'Itinéraire', value: data.itineraire && data.itineraire.length > 0 },
+      { key: 'vouchers', label: 'Vouchers', value: data.vouchers && Object.keys(data.vouchers).length > 0 },
+      { key: 'contacts', label: 'Contacts', value: data.contacts && data.contacts.length > 0 },
+    ];
+
+    let html = '';
+    items.forEach(item => {
+      const status = item.value ? 'ok' : 'missing';
+      const icon = status === 'ok' ? '✓' : '⚠';
+      html += `<div class="check-item">
+        <div class="check-badge ${status}">${icon}</div>
+        <span>${item.label}</span>
+      </div>`;
+    });
+
+    document.getElementById('checklist-items').innerHTML = html;
+  }
+
+  // ============ Timeline Compacte ============
+  function renderTimelineCompact(data){
+    if(!data.itineraire || data.itineraire.length === 0) return;
+
+    const timeline = document.getElementById('timeline-compact');
+    let html = '';
+
+    data.itineraire.forEach((jour, idx) => {
+      const events = jour.evenements || [];
+      html += `<div class="day-row">
+        <div class="day-num">${idx + 1}</div>
+        <div class="day-events">
+          <div style="font-weight:600; font-size:12px; color:var(--navy); margin-bottom:4px;">${jour.date || 'Jour ' + (idx+1)}</div>`;
+      
+      events.slice(0, 3).forEach(ev => {
+        html += `<div class="event-badge">${getEventIcon(ev.type)} ${ev.titre || ev.type}</div>`;
+      });
+      
+      if(events.length > 3) html += `<div class="event-badge">+${events.length - 3} plus</div>`;
+      
+      html += `</div></div>`;
+    });
+
+    timeline.innerHTML = html;
+    timeline.style.display = 'block';
+  }
+
+  function getEventIcon(type){
+    const map = {
+      hotel: '🏨', vol: '✈️', activite: '🎯', transfert: '🚗',
+      train: '🚆', restaurant: '🍽️', musee: '🖼️', plage: '🏖️'
+    };
+    return map[type] || '•';
+  }
+
+  // ============ ÉTAPE 3: Audit Exhaustif ============
+  document.getElementById('btn-run-audit').addEventListener('click', async (e) => {
+    if(!currentData){
+      alert("Chargez d'abord les données.");
+      return;
+    }
+
+    const btn = e.target;
+    btn.textContent = "⏳ Audit en cours...";
+    btn.disabled = true;
+
+    const auditPrompt = `
+DOSSIER DE VOYAGE:
+${JSON.stringify(currentData, null, 2)}
+
+RÈGLES DE VÉRIFICATION:
+1. DATES & CHRONOLOGIE:
+   - Vérifier que chaque jour a des événements
+   - Vérifier pas de chevauchement hôtel/vol
+   - Vérifier cohérence temporelle (vol avant transfert, etc)
+   - Vérifier pas de jour manquant
+
+2. DOCUMENTATION:
+   - Plan de vol présent (date, heure, numéro vol)
+   - Confirmations hôtel (dates, numéros réservation)
+   - Numéros passeport présents
+   - Contacts locaux (guides, transferts)
+
+3. ALERTES H-24:
+   - Transferts aéroport (à confirmer J-1)
+   - Excursions (à confirmer J-1)
+   - Activités avec horaires fixes
+
+4. INCOHÉRENCES:
+   - Décalage horaire non géré
+   - Durée vol incohérente
+   - Demande visa oubliée
+   - Assurance voyage manquante
+   - Documents spéciaux (carnet de vaccination, etc)
+
+Réponds STRICTEMENT en JSON:
+{
+  "etat": "OK|ERREURS|ALERTES",
+  "erreurs_critiques": [{"categorie":"...", "detail":"...", "action":"..."}],
+  "avertissements": [{"categorie":"...", "detail":"...", "suggestion":"..."}],
+  "verifications_h24": ["..."],
+  "notes": "..."
+}`;
+
+    const sys = "Tu es un auditeur expert de dossiers de voyage OnSpot. Sois exhaustif et précis.";
+
+    try {
+      const res = await callGemini(auditPrompt, sys, true);
+      auditResults = JSON.parse(res);
+      renderAuditResults(auditResults);
+    } catch(err){
+      alert("Erreur audit: " + err.message);
+    } finally {
+      btn.textContent = "🔍 Lancer l'Audit Complet";
+      btn.disabled = false;
+    }
+  });
+
+  // ============ Résultats Audit ============
+  function renderAuditResults(results){
+    const wrap = document.getElementById('audit-results');
+    wrap.style.display = 'block';
+
+    const status = results.etat === 'OK' ? 'pass' : 'fail';
+    const statusText = {
+      'OK': '✓ Dossier OK',
+      'ERREURS': '✗ Erreurs détectées',
+      'ALERTES': '⚠ Alertes à traiter'
+    }[results.etat] || results.etat;
+
+    let html = `<div class="audit-status ${status}">${statusText}</div>`;
+
+    if(results.erreurs_critiques && results.erreurs_critiques.length > 0){
+      html += `<div class="audit-card">
+        <div class="audit-card-title"><span class="badge-critical">CRITIQUE</span> Erreurs à corriger</div>`;
+      results.erreurs_critiques.forEach(err => {
+        html += `<div class="audit-item">
+          <div class="audit-icon">🔴</div>
+          <div>
+            <strong>${err.categorie}:</strong> ${err.detail}<br>
+            <span style="font-size:11px; color:var(--ink-light);">→ ${err.action}</span>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if(results.avertissements && results.avertissements.length > 0){
+      html += `<div class="audit-card">
+        <div class="audit-card-title"><span class="badge-warning">ALERTE</span> Points à vérifier</div>`;
+      results.avertissements.forEach(warn => {
+        html += `<div class="audit-item">
+          <div class="audit-icon">🟡</div>
+          <div>
+            <strong>${warn.categorie}:</strong> ${warn.detail}<br>
+            <span style="font-size:11px; color:var(--ink-light);">→ ${warn.suggestion}</span>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if(results.verifications_h24 && results.verifications_h24.length > 0){
+      html += `<div class="audit-card">
+        <div class="audit-card-title"><span class="badge-info">H-24</span> À vérifier demain</div>`;
+      results.verifications_h24.forEach(v => {
+        html += `<div class="audit-item">
+          <div class="audit-icon">📞</div>
+          <div>${v}</div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if(results.notes){
+      html += `<div class="audit-card">
+        <div class="audit-card-title">📝 Notes</div>
+        <div style="font-size:12px; line-height:1.6; color:var(--ink);">${results.notes}</div>
+      </div>`;
+    }
+
+    wrap.innerHTML = html;
+  }
+
+  // ============ Messages ============
+  async function genMsg(type, btn){
+    if(!currentData) { alert("Chargez d'abord les données."); return; }
+    
+    const original = btn.textContent;
+    btn.textContent = "⏳...";
+    btn.disabled = true;
+
+    const msgPrompt = type === 'welcome'
+      ? `Destination: ${currentData.destination}. Clients: ${currentData.voyageurs}. Dates: ${currentData.periode}. Rédige un message de bienvenue chaleureux (80-100 mots), ton haut de gamme OnSpot.`
+      : `Itinéraire: ${JSON.stringify(currentData.itineraire)}. Rédige un message de rappel H-24 pour confirmer les transferts et excursions de demain.`;
+
+    const sys = "Texte brut uniquement, professionnel et bienveillant.";
+
+    try {
+      const res = await callGemini(msgPrompt, sys, false);
+      document.getElementById('msg-output').value = res;
+      document.getElementById('msg-output').style.display = 'block';
+    } catch(e){
+      alert("Erreur: " + e.message);
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('btn-msg-welcome').addEventListener('click', (e) => genMsg('welcome', e.target));
+  document.getElementById('btn-msg-h24').addEventListener('click', (e) => genMsg('h24', e.target));
+
+  // ============ Utilities ============
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    if(confirm("Vider le formulaire ?")) location.reload();
+  });
+  document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+})();
+</script>
+</body>
+</html>

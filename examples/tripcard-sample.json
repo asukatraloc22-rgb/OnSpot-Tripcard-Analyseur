@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "reference": "ELT-DEMO-001",
+    "name": "Sicile — dossier de démonstration",
+    "destination": "Sicile, Italie",
+    "startDate": "2026-09-14",
+    "endDate": "2026-09-23"
+  },
+  "travelers": [
+    { "fullName": "Claire Martin" },
+    { "fullName": "Julien Martin" }
+  ],
+  "flights": [
+    { "flightNumber": "AF 1186", "departureDate": "2026-09-14", "departureTime": "09:20", "location": "Paris CDG → Catane" },
+    { "flightNumber": "AF 1291", "departureDate": "2026-09-23", "departureTime": "18:45", "location": "Palerme → Paris CDG" }
+  ],
+  "hotels": [
+    { "name": "Palazzo Sant’Agata", "checkIn": "2026-09-14", "city": "Catane" },
+    { "name": "Masseria del Sole", "checkIn": "2026-09-17", "city": "Noto" }
+  ],
+  "activities": [
+    { "title": "Etna au lever du jour", "date": "2026-09-16", "city": "Catane", "supplier": "Opérateur local" }
+  ],
+  "documents": [
+    { "name": "Voucher Etna", "date": "2026-09-16" }
+  ]
+}
