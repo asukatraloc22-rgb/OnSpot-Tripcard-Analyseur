@@ -157,9 +157,6 @@ function extractPageContentPerTabAndFiles() {
       { key: 'trains',       labels: ['Trains', 'Train'] }
     ];
     const vouchersTabDef = { key: 'vouchersTab', labels: ['Vouchers', 'Voucher', 'Documents'] };
-    const contextTabDefs = [
-      { key: 'ticketsTab', labels: ['Tickets', 'Ticket'] }
-    ];
 
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -175,6 +172,10 @@ function extractPageContentPerTabAndFiles() {
         }
       }
       return null;
+    }
+
+    function activeTabElement() {
+      return document.querySelector('[role="tab"][aria-selected="true"], [role="tab"].active, [role="tab"].is-active, button.active, button.is-active') || null;
     }
 
     // Détection des fichiers par type — accumulée au fil des clics, jamais réinitialisée
@@ -209,6 +210,9 @@ function extractPageContentPerTabAndFiles() {
     // panneau Voyageurs/Reminders/Notes, et le contenu de l'onglet par défaut).
     // Sert de filet en cas d'onglet non détecté par la suite.
     const initialSnapshot = (document.body.innerText || '').trim();
+    const originalTab = activeTabElement();
+    const ticketMatch = initialSnapshot.match(/\bTickets?\s*\(\s*(\d+)\s*\)/i);
+    const ticketsPresence = { detected: Boolean(ticketMatch || /\bTickets?\b/i.test(initialSnapshot)), count: ticketMatch ? Number(ticketMatch[1]) : null, evidence: ticketMatch ? ticketMatch[0] : (/\bTickets?\b/i.test(initialSnapshot) ? 'Onglet Tickets visible sur la page principale.' : 'Aucun onglet Tickets visible dans la capture initiale.') };
     scanFilesOnCurrentDOM();
 
     const itinerary = {};
@@ -255,17 +259,14 @@ function extractPageContentPerTabAndFiles() {
       itinerary[vouchersTabDef.key] = null;
     }
 
-    // 4) Les éléments hors itinéraire sont critiques pour les plans de vol et actions H-24.
-    for (const def of contextTabDefs) {
-      const el = findTabElement(def.labels);
-      if (!el) { itinerary[def.key] = null; continue; }
-      try { el.click(); await sleep(450); itinerary[def.key] = (document.body.innerText || '').trim(); scanFilesOnCurrentDOM(); }
-      catch (e) { itinerary[def.key] = null; }
-    }
+    // 4) Tickets et Rappels ne sont jamais ouverts : le contrôle pré-départ ne doit pas déplacer l’agent vers ces écrans.
+    // L’extension conserve uniquement une présence passive observée dans le bandeau principal.
+    try { if (originalTab && originalTab instanceof HTMLElement) { originalTab.click(); await sleep(120); } } catch (e) {}
 
     resolve({
       itinerary,
       initialSnapshot,
+      ticketsPresence,
       pdfUrls: Array.from(pdfUrlSet),
       docxUrls: Array.from(docxUrlSet),
       xlsxUrls: Array.from(xlsxUrlSet),
@@ -376,12 +377,11 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
     ...pageData.imageUrls.map((url) => ({ kind: 'image', url, name: url.split('/').pop()?.split('?')[0] || 'image-jointe', text: '' }))
   ].map((file) => ({ ...file, ...classifyDocument(file) }));
   const profileNotes = Array.from(new Set((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)));
-  const ticketsText = pageData.itinerary?.ticketsTab || '';
   const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
   return {
     schemaVersion: '2.0.2', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     reference, travelers,
-    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsText },
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' } },
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
     documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, hotels: files.filter((file) => file.category === 'hotel').length, transports: files.filter((file) => file.category === 'transport').length, activities: files.filter((file) => file.category === 'activity').length, unclassified: files.filter((file) => file.category === 'other').length },
     itinerary: pageData.itinerary, vouchersSummary: buildVouchersSummaryText({ pageData, pdfTexts, docxTexts, xlsxTexts })

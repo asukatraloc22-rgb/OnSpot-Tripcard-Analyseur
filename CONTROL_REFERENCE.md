@@ -28,6 +28,7 @@ Ce référentiel définit les contrôles exécutés par **TripCard ELITE**. Chaq
 | Document | Conforme lorsque | Important |
 | --- | --- | --- |
 | **Plan de vol / billet aérien** | Un PDF, DOCX ou XLSX comporte un numéro de billet ou une référence aérienne, les segments, aéroports et heures de départ / arrivée. | Un nom de fichier ou une mention « vol » ne suffit pas. |
+| **PNR complet** | Chaque segment aérien comporte un PNR ou code de réservation complet, lu dans le billet ou le segment structuré. | Un PNR manquant reste un point à clarifier avec l’agence, même si le vol est présent. |
 | **Passeport / CNI** | Un fichier joint est explicitement nommé ou catégorisé passeport/CNI, ou son contenu provient d’une pièce d’identité. | La phrase d’un hôtel indiquant qu’une pièce d’identité est requise ne vaut jamais preuve. |
 | **Voucher hôtel** | Le voucher contient le nom de l’hôtel, les dates, le voyageur ou l’occupation et une référence. | Les hôtels peuvent avoir plusieurs vouchers, notamment par chambre. |
 | **Voucher transfert** | Le document contient la date, l’heure, le point de prise en charge, la destination et la référence. | Une confirmation limousine n’est pas un plan de vol. |
@@ -57,7 +58,7 @@ La comparaison géographique n’est rendue que si les adresses ou coordonnées 
 | Rappel | Déclenchement | Donnée indispensable |
 | --- | --- | --- |
 | Check-in de vol | 24 h avant chaque départ de vol. | Heure de départ et date, converties en UTC. |
-| Welcome call | 5 h après l’arrivée finale à destination. | Heure d’arrivée réelle du dernier segment concerné, en UTC. |
+| Welcome call | Un seul appel, 5 h après l’arrivée finale du premier trajet à destination. Si H+5 atteint ou dépasse 20:00 locale, le rappel est déplacé au lendemain à 09:00 locale. | Heure d’arrivée réelle, aéroport/destination et fuseau local fiable ; l’interface restitue aussi l’équivalent UTC. |
 | Reconfirmation H-24 | Seulement si le voucher de l’activité ou du transfert mentionne une reconfirmation. | Formulation explicite de reconfirmation et date de prestation. |
 
 ## Architecture recommandée

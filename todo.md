@@ -57,3 +57,17 @@
 - [x] Déterminer les champs de preuve que l’extension doit exporter pour chaque document et prestation.
 - [x] Confirmer la version locale de l’extension et reconstruire un ZIP si son code est modifié.
 - [x] Valider l’application sur les exports Las Vegas et Japon, puis confirmer GitHub et Vercel sur le SHA `6c083236`.
+
+## Convergence extension et dashboard — audit détaillé
+
+- [x] Préserver la séparation fonctionnelle : extension autonome d’extraction, TripCard ELITE autonome d’audit ; ne partager que le langage visuel OnSpot.
+- [x] Recomposer le popup de l’extension avec le langage Liquid Glass OnSpot de TripCard ELITE.
+- [x] Ne plus cliquer les onglets Tickets ni Rappels ; signaler leur présence depuis la page principale sans navigation intrusive.
+- [x] Préserver l’extraction de toutes les données et pièces jointes visibles depuis la TripCard principale, y compris PDF, DOCX, XLSX et images.
+- [x] Rendre chaque bloc du dashboard ouvrable vers une checklist de données conformes, manquantes et à confirmer avec l’agence.
+- [x] Afficher et contrôler le PNR complet de chaque vol avec sa preuve documentaire.
+- [x] Limiter le welcome call à l’arrivée finale du premier trajet et calculer son heure selon le fuseau local de destination, avec report à 09:00 si l’échéance dépasse 20:00 localement.
+- [x] Ajouter les drapeaux de destination de manière fiable et accessible.
+- [x] Finaliser les espaces « Dossiers récents » et « Règles de contrôle » comme vues réellement utilisables.
+- [x] Adapter toutes les actions d’attention pour indiquer précisément ce qui doit être revérifié avec l’agence.
+- [ ] Pousser GitHub et confirmer Vercel sur le même SHA de cette version 2.0.3.
