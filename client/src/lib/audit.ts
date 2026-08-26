@@ -251,7 +251,12 @@ export function analyzeTrip(raw: Record<string, unknown>): AuditReport {
   const structured = exportSteps(raw);
   if (!structured.length) {
     const legacy = analyzeLegacyTrip(raw);
-    return { ...legacy, issues: legacy.issues.filter((issue) => issue.id !== "duplicate-date"), checks: [check("legacy-export", "Export", "Structure des données", "pending", "Export historique analysé en mode de compatibilité.", "La collection services[] est absente.", "Réexporter avec l’extension à jour pour activer les contrôles par preuve.")] };
+    const documents = exportDocuments(raw);
+    const identityDocuments = documents.filter(isIdentity);
+    const documentChecks = legacy.documentChecks.map((item) => item.id !== "identity" ? item : { ...item, status: identityDocuments.length ? "present" as const : "pending" as const, evidence: identityDocuments.length ? identityDocuments.map((document) => document.name).join(" · ") : "Aucune pièce jointe d’identité vérifiable ; les simples mentions textuelles sont ignorées." });
+    const metadata = { ...legacy.metadata, identityDocuments: identityDocuments.map((document) => document.name) };
+    const issues = legacy.issues.filter((issue) => issue.id !== "duplicate-date" && !issue.id.startsWith("identity-documents"));
+    return { ...legacy, metadata, documentChecks, issues, checks: [check("legacy-export", "Export", "Structure des données", "pending", "Export historique analysé en mode de compatibilité.", "La collection services[] est absente.", "Réexporter avec l’extension à jour pour activer les contrôles par preuve."), check("legacy-identity", "Documents", "Passeports / CNI réellement joints", identityDocuments.length ? "ok" : "pending", identityDocuments.length ? `${identityDocuments.length} fichier(s) d’identité joint(s) identifié(s).` : "Aucun fichier d’identité vérifiable dans cet export historique.", identityDocuments.length ? identityDocuments.map((document) => document.name).join(" · ") : "Les mentions de passeport/CNI dans le texte ne sont pas traitées comme des documents.", identityDocuments.length ? undefined : "Réexporter le dossier avec l’extension 2.0.2 ou vérifier les pièces jointes dans OnSpot.")] };
   }
 
   const legacy = analyzeLegacyTrip(raw);
