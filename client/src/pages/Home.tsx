@@ -34,6 +34,7 @@ import {
   type AuditReport,
   type AuditStatus,
   type DocumentCheck,
+  type FlightDetail,
   type TripStep,
 } from "@/lib/audit";
 
@@ -371,9 +372,16 @@ function DocumentStatus({ status }: { status: DocumentCheck["status"] }) {
     </span>
   );
 }
-function StepRow({ step }: { step: TripStep }) {
+function StepRow({
+  step,
+  onOpenFlight,
+}: {
+  step: TripStep;
+  onOpenFlight?: () => void;
+}) {
+  const isFlight = step.type === "Vol" && Boolean(onOpenFlight);
   return (
-    <div className="step-row">
+    <div className={isFlight ? "step-row step-row-flight" : "step-row"}>
       <div className="step-rail">
         <div className="step-icon">
           <StepIcon type={step.type} />
@@ -397,7 +405,65 @@ function StepRow({ step }: { step: TripStep }) {
         </p>
         <small>{step.detail}</small>
       </div>
-      <StatusPill status={step.status} />
+      <div className="step-row-actions">
+        <StatusPill status={step.status} />
+        {isFlight ? (
+          <button className="flight-detail-trigger" onClick={onOpenFlight}>
+            Voir PNR
+            <ChevronRight size={14} />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function FlightDetailDialog({
+  flight,
+  onClose,
+}: {
+  flight: FlightDetail;
+  onClose: () => void;
+}) {
+  const hasPnr = Boolean(flight.pnr);
+  return (
+    <div className="raw-overlay flight-overlay" onClick={onClose}>
+      <section
+        className="flight-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flight-detail-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <header className="flight-dialog-head">
+          <div>
+            <p className="eyebrow">Segment aérien · preuve locale</p>
+            <h2 id="flight-detail-title">{flight.flightNumber}</h2>
+            <p className="flight-route"><Plane size={15} />{flight.route}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Fermer le détail du vol">
+            <X size={17} />
+          </button>
+        </header>
+        <section className={hasPnr ? "pnr-hero" : "pnr-hero pnr-missing"}>
+          <div>
+            <span className="mono">PNR / CODE DE RÉSERVATION</span>
+            <strong>{hasPnr ? flight.pnr : "À obtenir"}</strong>
+            <p>{flight.pnrEvidence}</p>
+          </div>
+          <StatusPill status={hasPnr ? "ok" : "pending"} />
+        </section>
+        <section className="flight-facts-grid" aria-label="Horaires du segment">
+          <div><span>Départ</span><b>{flight.departureDate ? formatDate(flight.departureDate) : "Date à confirmer"}</b><small>{flight.departureTime || "Heure à confirmer"}</small></div>
+          <div><span>Arrivée</span><b>{flight.arrivalDate ? formatDate(flight.arrivalDate) : "Date à confirmer"}</b><small>{flight.arrivalTime || "Heure à confirmer"}</small></div>
+          <div><span>Source</span><b>{flight.sourceName || "Aucun plan de vol rattaché"}</b><small>{flight.sourceName ? "Fichier joint analysé localement" : "Le segment seul ne prouve pas le PNR"}</small></div>
+        </section>
+        <section className="flight-proof-panel">
+          <div className="flight-proof-head"><Paperclip size={15} /><span>Extrait de preuve utilisé</span></div>
+          {flight.sourceExcerpt ? <p>{flight.sourceExcerpt}</p> : <p className="muted-proof">Aucun extrait de billet aérien n’est disponible pour ce segment. Le PNR ne doit pas être deviné à partir de l’itinéraire.</p>}
+        </section>
+        {flight.action ? <section className="flight-action"><Flag size={15} /><div><span>À demander / vérifier avec l’agence</span><p>{flight.action}</p></div></section> : <section className="flight-clear"><Check size={15} />Le PNR est associé à une preuve documentaire exportée. Vérifiez sa concordance finale avec le billet avant départ.</section>}
+      </section>
     </div>
   );
 }
@@ -739,6 +805,10 @@ export default function Home() {
   );
   const [resolved, setResolved] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
+  const [selectedFlight, setSelectedFlight] = useState<FlightDetail | null>(() => {
+    const requestedFlight = new URLSearchParams(window.location.search).get("flight");
+    return requestedFlight && report ? report.flightDetails.find(flight => flight.flightId === requestedFlight) ?? null : null;
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const recentReports = useMemo<RecentStore[]>(() => {
@@ -783,6 +853,7 @@ export default function Home() {
     setChecklistFilter("all");
     setReviewedChecks(readProgress(next.reference));
     setResolved([]);
+    setSelectedFlight(null);
     localStorage.setItem("tripcard:last-report", JSON.stringify(next));
     storeRecent(next);
     toast.success(`Dossier importé · ${source}`, {
@@ -796,6 +867,7 @@ export default function Home() {
     setSelectedDomain("Tout");
     setChecklistFilter("all");
     setReviewedChecks(readProgress(next.reference));
+    setSelectedFlight(null);
     localStorage.setItem("tripcard:last-report", JSON.stringify(next));
   };
   const removeRecent = (reference: string) => {
@@ -1404,7 +1476,15 @@ export default function Home() {
                     <div className="timeline">
                       {filteredSteps.length ? (
                         filteredSteps.map(step => (
-                          <StepRow key={step.id} step={step} />
+                          <StepRow
+                            key={step.id}
+                            step={step}
+                            onOpenFlight={
+                              step.type === "Vol"
+                                ? () => setSelectedFlight(report.flightDetails.find(flight => flight.flightId === step.id) ?? null)
+                                : undefined
+                            }
+                          />
                         ))
                       ) : (
                         <p className="empty-line">
@@ -1596,6 +1676,12 @@ export default function Home() {
             <pre>{JSON.stringify(report.raw, null, 2)}</pre>
           </div>
         </div>
+      ) : null}
+      {selectedFlight ? (
+        <FlightDetailDialog
+          flight={selectedFlight}
+          onClose={() => setSelectedFlight(null)}
+        />
       ) : null}
     </div>
   );

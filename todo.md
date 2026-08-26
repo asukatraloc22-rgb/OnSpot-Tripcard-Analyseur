@@ -80,4 +80,12 @@
 - [x] Comparer les fonctionnalités du référentiel transmis aux capacités locales existantes, sans réintroduire de faux positifs ni de règles opaques.
 - [x] Distinguer les besoins réalisables par règles et données structurées de ceux qui justifieraient une IA optionnelle.
 - [x] Documenter une recommandation IA gratuite, limitée et strictement opt-in si un gain opérationnel réel subsiste.
-- [ ] Sauvegarder, synchroniser GitHub/Vercel et livrer la mise à jour.
+- [x] Sauvegarder, synchroniser GitHub/Vercel et livrer la mise à jour de checklist et stratégie IA.
+
+## Fiche PNR et détail des vols
+
+- [x] Extraire de chaque segment aérien les éléments de lecture disponibles : numéro de vol, itinéraire, dates, horaires, PNR et preuve source.
+- [x] Rendre les vols de l’itinéraire ouvrables vers une fiche lisible, sans inventer les données manquantes.
+- [x] Distinguer clairement le PNR trouvé, le PNR absent et la source documentaire utilisée.
+- [x] Tester la fiche avec les exports structurés et historiques.
+- [ ] Sauvegarder, synchroniser GitHub/Vercel et livrer la fiche PNR.
