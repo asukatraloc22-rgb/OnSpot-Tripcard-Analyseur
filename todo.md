@@ -71,3 +71,13 @@
 - [x] Finaliser les espaces « Dossiers récents » et « Règles de contrôle » comme vues réellement utilisables.
 - [x] Adapter toutes les actions d’attention pour indiquer précisément ce qui doit être revérifié avec l’agence.
 - [x] Pousser GitHub et confirmer Vercel READY sur le SHA `88e44dc6306229a55ba39d87c353ca1eca1b6c47` de cette version 2.0.3.
+
+## Checklist interactive et stratégie d’intelligence
+
+- [x] Ajouter des cases à cocher manuelles aux contrôles de l’audit, sans modifier le verdict déterministe ni les preuves.
+- [x] Calculer et afficher une progression de traitement persistée localement par dossier.
+- [x] Permettre à l’agent de filtrer rapidement les contrôles restants, traités et bloquants.
+- [x] Comparer les fonctionnalités du référentiel transmis aux capacités locales existantes, sans réintroduire de faux positifs ni de règles opaques.
+- [x] Distinguer les besoins réalisables par règles et données structurées de ceux qui justifieraient une IA optionnelle.
+- [x] Documenter une recommandation IA gratuite, limitée et strictement opt-in si un gain opérationnel réel subsiste.
+- [ ] Sauvegarder, synchroniser GitHub/Vercel et livrer la mise à jour.
