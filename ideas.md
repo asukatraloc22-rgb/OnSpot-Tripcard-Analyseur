@@ -131,3 +131,6 @@ Le mot-symbole conserve le logo OnSpot, accompagné de « TripCard » et du nive
 - Chaque niveau de verre a une fonction visuelle explicite : **dock** pour la navigation, **mission** pour l’identité du dossier, **preuve** pour les données, **action** pour les alertes et **annotation** pour les sources.
 - La ligne de trajet, les bordures perforées, les balises mono de source et les repères de contrôle se répètent sur les rappels, preuves, étapes et alertes.
 - Le bleu OnSpot porte les actions et interactions ; le jaune OnSpot indique la progression ou la validation et ne sert pas de couleur décorative de fond générale.
+- Fraunces est réservé au titre du voyage et aux rares moments de synthèse ; les titres de sections, cartes, onglets et actions emploient IBM Plex Sans ou Mono pour la rapidité de lecture.
+- Chaque surface majeure affiche visiblement son rôle de verre : dock ancré, mission lumineuse, preuve dense, action urgente ou annotation source.
+- Le repère compact **O–S–point** se répète dans les statuts et preuves ; le bleu OnSpot reste la couleur d’action dominante et le jaune ne certifie qu’une validation, une progression ou une action en attente.

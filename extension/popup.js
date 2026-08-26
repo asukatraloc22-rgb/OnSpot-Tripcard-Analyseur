@@ -337,15 +337,32 @@ function extractStructuredServices(timeline, referenceText = '') {
     if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = null; continue; }
     if (sectionNames.has(line)) { section = line; continue; }
     if (!section || !currentDate || /^(Rechercher|Tableau|Trip_|Ajouter|Reminders|Notes|Services|Métadonnées|Tickets)/i.test(line)) continue;
-    const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const location = hasTime ? lines[index + 2] : lines[index + 1];
+    const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const next = hasTime ? lines[index + 2] : lines[index + 1]; const nextIsDate = monthPattern.test(next || ''); const location = nextIsDate && type === 'activity' ? 'Lieu non exporté dans la timeline' : next;
     if (!title || !location || sectionNames.has(title) || sectionNames.has(location)) continue;
     if (type === 'hotel' && !/,\s*[A-Z]{2}$/i.test(location)) continue;
     if (['transfer', 'train', 'flight'].includes(type) && !location.includes('→')) continue;
     if (title.length > 180 || location.length > 260) continue;
-    services.push({ id: `${type}-${services.length + 1}`, type, date: currentDate, time: hasTime ? line : null, title: cleanText(title), location: cleanText(location), source: 'itinerary.tous' });
-    index += hasTime ? 2 : 1;
+    services.push({ id: `${type}-${services.length + 1}`, type, date: currentDate, time: hasTime ? line : null, title: cleanText(title), location: cleanText(location), source: 'itinerary.tous', extractionConfidence: nextIsDate ? 'medium' : 'high', extractionEvidence: nextIsDate ? 'Prestation datée mais lieu non visible avant la date suivante.' : 'Date, section et détails visibles dans la timeline.' });
+    index += hasTime ? (nextIsDate ? 1 : 2) : (nextIsDate ? 0 : 1);
   }
   return Array.from(new Map(services.map((service) => [`${service.type}|${service.date}|${service.title}|${service.location}`, service])).values());
+}
+
+function classifyDocument(file) {
+  const filename = String(file.name || '').toLowerCase();
+  const content = `${file.name}\n${file.text || ''}`.toLowerCase();
+  const result = (category, confidence, evidence) => ({ category, classificationConfidence: confidence, classificationEvidence: evidence });
+  const flightText = /compagnie émettrice|numéro de billet|votre e-ticket|boarding pass|carte d.?embarquement|flight itinerary/.test(content);
+  const flightName = /(?:billet|e[-_ ]?ticket|flight|vol)[^a-z]{0,25}(?:avion|air|airlines?|dl|af|ba|lh)/.test(filename);
+  if (flightText || (flightName && /(?:\b[A-Z]{2}\s?\d{2,4}\b|aéroport|airport|departure|arrivée|arrival)/i.test(file.text || ''))) return result('flight-plan', 'high', flightText ? 'Le contenu comporte un numéro de billet, une compagnie émettrice ou une preuve d’embarquement.' : 'Le nom et le contenu confirment un document aérien avec segment exploitable.');
+  const identityName = /(?:^|[_\-\s])(passeport|passport|cni|carte[_\-\s]?(?:nationale[_\-\s]?)?d.?identit[eé])(?:[_\-\s.]|$)/.test(filename);
+  const identityText = /(?:passport number|numéro de passeport|document number|numéro de document|^p<[a-z])/im.test(String(file.text || ''));
+  if (identityName || identityText) return result('identity', identityName ? 'high' : 'medium', identityName ? 'Le fichier joint est explicitement nommé passeport ou CNI.' : 'Le contenu porte un identifiant propre à un document d’identité.');
+  if (/(?:^|\n)\s*(?:hotel|hôtel)\s*:|type de chambre|room type|check.?in|plan repas/.test(content)) return result('hotel', 'high', 'Le contenu identifie un hôtel, une chambre ou des dates de séjour.');
+  if (/pickup date|pickup time|dropoff address|limo|chauffeur|transfer|transfert|car rental|location de voiture|ferry|train/.test(content)) return result('transport', 'high', 'Le contenu identifie une prise en charge, un transport ou une location.');
+  if (/tour\/activity|tour\/?activity|restaurant reservation|activity date|excursion|reservation confirmation/.test(content)) return result('activity', 'high', 'Le contenu identifie une activité ou une réservation de restaurant.');
+  if (/itinerary|itinéraire/.test(filename)) return result('itinerary', 'medium', 'Le nom du fichier indique un itinéraire ; sa nature de voucher doit être contrôlée.');
+  return result('other', 'low', 'Aucun marqueur documentaire suffisamment spécifique n’a été trouvé.');
 }
 
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
@@ -355,23 +372,18 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const files = [
     ...pdfTexts.map((item) => ({ kind: 'pdf', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.pdf', text: item.text })),
     ...docxTexts.map((item) => ({ kind: 'docx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.docx', text: item.text })),
-    ...xlsxTexts.map((item) => ({ kind: 'xlsx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.xlsx', text: item.text }))
-  ].map((file) => {
-    const filename = file.name.toLowerCase();
-    const content = `${file.name}\n${file.text}`.toLowerCase();
-    const flightPlan = /billet|e[- ]?ticket|boarding|carte d.?embarquement|airlines?|avion|flight/.test(filename) || /compagnie émettrice|numéro de billet|votre e-ticket|classe\s*:\s*(business|economy|premium)/.test(content);
-    const identity = /passeport|passport|\bcni\b|carte nationale d.?identité/.test(filename) || /passeport|passport|carte nationale d.?identité/.test(content);
-    return { ...file, category: flightPlan ? 'flight-plan' : identity ? 'identity' : 'voucher' };
-  });
+    ...xlsxTexts.map((item) => ({ kind: 'xlsx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.xlsx', text: item.text })),
+    ...pageData.imageUrls.map((url) => ({ kind: 'image', url, name: url.split('/').pop()?.split('?')[0] || 'image-jointe', text: '' }))
+  ].map((file) => ({ ...file, ...classifyDocument(file) }));
   const profileNotes = Array.from(new Set((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)));
   const ticketsText = pageData.itinerary?.ticketsTab || '';
   const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
   return {
-    schemaVersion: '2.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
+    schemaVersion: '2.0.2', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     reference, travelers,
     metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsText },
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
-    documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, vouchers: files.filter((file) => file.category === 'voucher').length },
+    documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, hotels: files.filter((file) => file.category === 'hotel').length, transports: files.filter((file) => file.category === 'transport').length, activities: files.filter((file) => file.category === 'activity').length, unclassified: files.filter((file) => file.category === 'other').length },
     itinerary: pageData.itinerary, vouchersSummary: buildVouchersSummaryText({ pageData, pdfTexts, docxTexts, xlsxTexts })
   };
 }

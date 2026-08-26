@@ -1,12 +1,13 @@
-/* TripCard ELITE — moteur local de contrôle. Style reminder: Swiss operational dossier, explicit evidence, no opaque scoring. */
+/* TripCard ELITE — moteur local de contrôle. Liquid Glass OnSpot: preuves explicites, règles déterministes, aucune conclusion sans source. */
 
 export type AuditStatus = "ok" | "warning" | "critical" | "pending";
 export type AuditIssue = { id: string; severity: Exclude<AuditStatus, "pending">; title: string; detail: string; source?: string; action?: string };
-export type TripStep = { id: string; type: string; title: string; location: string; date?: string; time?: string; status: AuditStatus; detail?: string };
+export type TripStep = { id: string; type: string; title: string; location: string; date?: string; time?: string; arrivalDate?: string; arrivalTime?: string; status: AuditStatus; detail?: string };
 export type AuditReminder = { id: string; kind: "H-24" | "CHECK-IN" | "WELCOME"; date: string; time?: string; timezone: "UTC"; label: string; detail: string; status: AuditStatus };
 export type AuditMetadata = { agency: string; creator: string; tripId: string; package: string; lastUpdated: string; identityDocuments: string[]; profileNotes: string[]; tickets: string; reconfirmation: string };
 export type DocumentCheck = { id: string; label: string; category: "flight-plan" | "identity" | "hotel" | "transport" | "activity" | "other"; status: "present" | "missing" | "pending" | "not-applicable"; evidence: string };
-export type AuditReport = { raw: Record<string, unknown>; tripName: string; reference: string; destination: string; startDate: string; endDate: string; travelers: string[]; steps: TripStep[]; issues: AuditIssue[]; reminders: AuditReminder[]; metadata: AuditMetadata; documentChecks: DocumentCheck[]; stats: { checked: number; passed: number; warnings: number; critical: number }; domains: { label: string; count: number; status: AuditStatus; note: string }[] };
+export type AuditCheck = { id: string; domain: string; label: string; status: AuditStatus; finding: string; evidence: string; action?: string };
+export type AuditReport = { raw: Record<string, unknown>; tripName: string; reference: string; destination: string; startDate: string; endDate: string; travelers: string[]; steps: TripStep[]; issues: AuditIssue[]; reminders: AuditReminder[]; metadata: AuditMetadata; documentChecks: DocumentCheck[]; checks: AuditCheck[]; stats: { checked: number; passed: number; warnings: number; critical: number }; domains: { label: string; count: number; status: AuditStatus; note: string }[] };
 
 const emptyMetadata = (): AuditMetadata => ({ agency: "Non renseignée", creator: "Non renseigné", tripId: "Non renseigné", package: "Non renseigné", lastUpdated: "Non renseignée", identityDocuments: [], profileNotes: [], tickets: "Non renseigné", reconfirmation: "Non renseignée" });
 const defaultDomains = () => ["Méta & voyageurs", "Vols", "Hébergements", "Transferts & documents", "Cohérence"].map((label) => ({ label, count: 0, status: "pending" as AuditStatus, note: "À contrôler" }));
@@ -15,13 +16,14 @@ export function normalizeReport(value: unknown): AuditReport | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Partial<AuditReport> & Record<string, unknown>;
   if (!Array.isArray(source.steps) || !Array.isArray(source.issues)) return null;
-  if ((!Array.isArray(source.reminders) || !Array.isArray(source.documentChecks)) && source.raw && typeof source.raw === "object") return analyzeTrip(source.raw as Record<string, unknown>);
+  if ((!Array.isArray(source.reminders) || !Array.isArray(source.documentChecks) || !Array.isArray(source.checks)) && source.raw && typeof source.raw === "object") return analyzeTrip(source.raw as Record<string, unknown>);
   const metadata = { ...emptyMetadata(), ...(source.metadata && typeof source.metadata === "object" ? source.metadata : {}) };
   const reminders = Array.isArray(source.reminders) ? source.reminders.map((reminder) => ({ ...reminder, timezone: "UTC" as const })) : [];
   const stats = { checked: 0, passed: 0, warnings: 0, critical: 0, ...(source.stats && typeof source.stats === "object" ? source.stats : {}) };
   const domains = Array.isArray(source.domains) ? source.domains : defaultDomains();
   const documentChecks = Array.isArray(source.documentChecks) ? source.documentChecks : [];
-  return { raw: (source.raw && typeof source.raw === "object" ? source.raw : {}) as Record<string, unknown>, tripName: text(source.tripName, "Dossier sans titre"), reference: text(source.reference, "Dossier sans référence"), destination: text(source.destination, "Destination à confirmer"), startDate: text(source.startDate, "—"), endDate: text(source.endDate, "—"), travelers: Array.isArray(source.travelers) ? source.travelers.map(String) : [], steps: source.steps as TripStep[], issues: source.issues as AuditIssue[], reminders: reminders as AuditReminder[], metadata: metadata as AuditMetadata, documentChecks: documentChecks as DocumentCheck[], stats, domains: domains as AuditReport["domains"] };
+  const checks = Array.isArray(source.checks) ? source.checks : [];
+  return { raw: (source.raw && typeof source.raw === "object" ? source.raw : {}) as Record<string, unknown>, tripName: text(source.tripName, "Dossier sans titre"), reference: text(source.reference, "Dossier sans référence"), destination: text(source.destination, "Destination à confirmer"), startDate: text(source.startDate, "—"), endDate: text(source.endDate, "—"), travelers: Array.isArray(source.travelers) ? source.travelers.map(String) : [], steps: source.steps as TripStep[], issues: source.issues as AuditIssue[], reminders: reminders as AuditReminder[], metadata: metadata as AuditMetadata, documentChecks: documentChecks as DocumentCheck[], checks: checks as AuditCheck[], stats, domains: domains as AuditReport["domains"] };
 }
 
 const text = (value: unknown, fallback = "Non renseigné") => { if (typeof value === "string" && value.trim()) return value.trim(); if (typeof value === "number") return String(value); return fallback; };
@@ -51,7 +53,9 @@ function makeStep(item: unknown, index: number, type: string): TripStep {
   const title = text(first(record.title, record.name, record.hotelName, record.activity, record.service, record.flightNumber), `${type} ${index + 1}`);
   const date = isoDate(first(record.date, record.startDate, record.checkIn, record.departureDate, record.pickupDate));
   const time = text(first(record.time, record.departureTime, record.pickupTime, record.checkInTime), "");
-  return { id: `${type}-${index}`, type, title, location, date, time: time || undefined, status: "ok", detail: text(first(record.description, record.notes, record.supplier), "Présence enregistrée dans le dossier.") };
+  const arrivalDate = isoDate(first(record.arrivalDate, record.arrival_date));
+  const arrivalTime = text(first(record.arrivalTime, record.arrival_time), "");
+  return { id: `${type}-${index}`, type, title, location, date, time: time || undefined, arrivalDate: arrivalDate === "—" ? undefined : arrivalDate, arrivalTime: arrivalTime || undefined, status: "ok", detail: text(first(record.description, record.notes, record.supplier), "Présence enregistrée dans le dossier.") };
 }
 
 function onSpotText(raw: Record<string, unknown>) {
@@ -124,7 +128,37 @@ function parseOnSpotSteps(raw: Record<string, unknown>, all: string): { steps: T
 
 function compareDatesFromText(endDate: string, all: string) { const endDay = endDate.match(/-([0-9]{2})$/)?.[1]; return endDay && (all.includes("Retour le 8") || /\n8 sept\./i.test(all)) && endDay !== "08"; }
 
-export function analyzeTrip(raw: Record<string, unknown>): AuditReport {
+type ExportedDocument = { name: string; kind: string; category: string; url: string; excerpt: string; extractionStatus: string };
+
+const fullDocumentText = (document: ExportedDocument) => `${document.name}\n${document.excerpt}`.toLowerCase();
+const isFlightPlanDocument = (document: ExportedDocument) => /(?:numéro de billet|votre e-ticket|compagnie émettrice|boarding pass|carte d.?embarquement|flight itinerary|billet d.?avion)/i.test(`${document.name}\n${document.excerpt}`);
+const isIdentityDocument = (document: ExportedDocument) => /(?:^|[^a-z])(?:passeport|passport|cni|carte nationale d.?identité)(?:[^a-z]|$)/i.test(document.name) || /(?:document number|numéro de passeport|passport number|passeport n°|carte nationale d.?identité)/i.test(document.excerpt);
+const isHotelDocument = (document: ExportedDocument) => /(?:^|\n)\s*(?:hotel|hôtel)\s*:/i.test(document.excerpt) || /(?:reservation|booking)[\s\S]{0,180}(?:room|chambre|check.?in|check.?out|plan repas)/i.test(document.excerpt);
+const isTransportDocument = (document: ExportedDocument) => /(?:pickup date|pickup time|dropoff address|limo|transfer|transfert|chauffeur|train|ferry|car rental)/i.test(fullDocumentText(document));
+const isActivityDocument = (document: ExportedDocument) => /(?:tour\/activity|tour\/?activity|restaurant reservation|activity date|activité|excursion|reservation confirmation)/i.test(fullDocumentText(document));
+
+function exportDocuments(raw: Record<string, unknown>): ExportedDocument[] {
+  return arrayFrom(raw.documents).map((item, index) => {
+    const record = recordOf(item);
+    return { name: text(record.name, `Document ${index + 1}`), kind: text(record.kind, "fichier"), category: text(record.category, "voucher"), url: text(record.url, ""), excerpt: text(first(record.excerpt, record.text), ""), extractionStatus: text(record.extractionStatus, "ok") };
+  }).filter((document) => document.extractionStatus !== "error");
+}
+
+function exportSteps(raw: Record<string, unknown>): TripStep[] {
+  const year = text(raw.generatedAt, new Date().getUTCFullYear().toString()).match(/20\d{2}/)?.[0] ?? new Date().getUTCFullYear().toString();
+  const typeMap: Record<string, string> = { flight: "Vol", hotel: "Hôtel", transfer: "Transfert", activity: "Activité", train: "Train", "car-rental": "Location voiture", ferry: "Ferry" };
+  return arrayFrom(raw.services).map((item, index) => {
+    const record = recordOf(item);
+    const sourceDate = isoDate(record.date);
+    const date = /^2000-/.test(sourceDate) ? `${year}-${sourceDate.slice(5)}` : sourceDate;
+    const type = typeMap[text(record.type, "other").toLowerCase()] ?? text(record.type, "Prestation");
+    return { id: text(record.id, `${type}-${index}`), type, title: text(record.title, `${type} ${index + 1}`), location: text(first(record.location, record.address, record.city), "Lieu à confirmer"), date, time: text(record.time, "") || undefined, arrivalDate: isoDate(first(record.arrivalDate, record.arrival_date)) === "—" ? undefined : isoDate(first(record.arrivalDate, record.arrival_date)), arrivalTime: text(first(record.arrivalTime, record.arrival_time), "") || undefined, status: "ok" as AuditStatus, detail: `Prestation structurée exportée depuis ${text(record.source, "l’extension OnSpot")}.` };
+  }).filter((step) => step.date !== "—");
+}
+
+function travelerCountFromText(value: string) { return Number(value.match(/Voyageurs\s*\((\d+)\)/i)?.[1] ?? 0); }
+
+function analyzeLegacyTrip(raw: Record<string, unknown>): AuditReport {
   const meta = recordOf(raw.meta); const trip = recordOf(raw.trip); const onSpot = onSpotText(raw); const isOnSpot = Boolean(raw.source === "onspot-audit-assistant" || raw.itinerary || raw.vouchersSummary);
   let travelers = pickList(raw, ["travelers", "passengers", "pax", "clients"]).map((item) => typeof item === "string" ? item : text(first(recordOf(item).name, recordOf(item).fullName, [recordOf(item).firstName, recordOf(item).lastName].filter(Boolean).join(" ")), "Voyageur")).filter(Boolean);
   let flights = pickList(raw, ["flights", "flightSegments", "air"]).map((item, index) => makeStep(item, index, "Vol"));
@@ -175,7 +209,106 @@ export function analyzeTrip(raw: Record<string, unknown>): AuditReport {
   if (identityDocuments.length === 0) issues.push({ id: "identity-documents-missing", severity: "warning", title: "Passeports / CNI non retrouvés", detail: "Aucun document d’identité n’est explicitement repéré dans le texte exporté.", action: "Vérifier l’onglet Vouchers et les pièces jointes de la tripcard." });
   if (/en attente \(Agence\)/i.test(combined) && /passeports?/i.test(combined)) issues.push({ id: "identity-documents-pending", severity: "warning", title: "Pièces d’identité demandées mais non finalisées", detail: "Un message demande les passeports pour émettre les cartes d’embarquement et le ticket apparaît en attente agence.", source: "ticket / message OnSpot", action: "Obtenir les passeports ou CNI et contrôler leur présence dans les vouchers." });
   const checked = Math.max(steps.length + documents.length + reminders.length + 8, 8); const critical = issues.filter((issue) => issue.severity === "critical").length; const warnings = issues.filter((issue) => issue.severity === "warning").length; const passed = Math.max(checked - critical - warnings, 0); const domain = (label: string, count: number, related: AuditIssue[], note: string) => ({ label, count, status: related.some((issue) => issue.severity === "critical") ? "critical" as AuditStatus : related.length ? "warning" as AuditStatus : "ok" as AuditStatus, note }); const issue = (id: string) => issues.filter((entry) => entry.id === id);
-  return { raw, tripName, reference, destination, startDate, endDate, travelers, steps, issues, reminders, metadata, documentChecks, stats: { checked, passed, warnings, critical }, domains: [domain("Méta & voyageurs", travelers.length + 4, [...issue("missing-travelers"), ...issue("missing-dates"), ...issue("country-conflict")], travelers.length ? "Identité et période repérées" : "Informations à compléter"), domain("Vols", flights.length + documentChecks.filter((check) => check.category === "flight-plan").length, issue("flight-plans-missing"), flights.length ? `${flights.length} segment${flights.length > 1 ? "s" : ""} détecté${flights.length > 1 ? "s" : ""} · plan de vol ${hasFlightPlanEvidence ? "retrouvé" : "à contrôler"}` : "Aucun segment retrouvé"), domain("Hébergements", hotels.length, issue("missing-hotels"), hotels.length ? `${hotels.length} étape${hotels.length > 1 ? "s" : ""} retrouvée${hotels.length > 1 ? "s" : ""}` : "Contrôle requis"), domain("Transferts & documents", transfers.length + documents.length + documentChecks.length, [...issue("missing-transfers"), ...issue("tickets-missing"), ...issue("flight-plans-missing")], `${transfers.length} transfert${transfers.length > 1 ? "s" : ""}, ${documents.length} document${documents.length > 1 ? "s" : ""}, ${documentChecks.length} contrôles documentaires`), domain("Cohérence", steps.length, [...issue("return-date-conflict"), ...issue("duplicate-date"), ...issue("empty-itinerary")], issues.length ? "Points d’attention générés" : "Aucune anomalie locale")] };
+  return { raw, tripName, reference, destination, startDate, endDate, travelers, steps, issues, reminders, metadata, documentChecks, checks: [], stats: { checked, passed, warnings, critical }, domains: [domain("Méta & voyageurs", travelers.length + 4, [...issue("missing-travelers"), ...issue("missing-dates"), ...issue("country-conflict")], travelers.length ? "Identité et période repérées" : "Informations à compléter"), domain("Vols", flights.length + documentChecks.filter((check) => check.category === "flight-plan").length, issue("flight-plans-missing"), flights.length ? `${flights.length} segment${flights.length > 1 ? "s" : ""} détecté${flights.length > 1 ? "s" : ""} · plan de vol ${hasFlightPlanEvidence ? "retrouvé" : "à contrôler"}` : "Aucun segment retrouvé"), domain("Hébergements", hotels.length, issue("missing-hotels"), hotels.length ? `${hotels.length} étape${hotels.length > 1 ? "s" : ""} retrouvée${hotels.length > 1 ? "s" : ""}` : "Contrôle requis"), domain("Transferts & documents", transfers.length + documents.length + documentChecks.length, [...issue("missing-transfers"), ...issue("tickets-missing"), ...issue("flight-plans-missing")], `${transfers.length} transfert${transfers.length > 1 ? "s" : ""}, ${documents.length} document${documents.length > 1 ? "s" : ""}, ${documentChecks.length} contrôles documentaires`), domain("Cohérence", steps.length, [...issue("return-date-conflict"), ...issue("duplicate-date"), ...issue("empty-itinerary")], issues.length ? "Points d’attention générés" : "Aucune anomalie locale")] };
+}
+
+const check = (id: string, domain: string, label: string, status: AuditStatus, finding: string, evidence: string, action?: string): AuditCheck => ({ id, domain, label, status, finding, evidence, action });
+const timeInMinutes = (value?: string) => { const match = (value ?? "").match(/^(\d{1,2}):(\d{2})$/); return match ? Number(match[1]) * 60 + Number(match[2]) : null; };
+const flightNumber = (value: string) => value.match(/\b([A-Z]{2})\s?(\d{2,4})\b/i)?.slice(1).join(" ").toUpperCase() ?? "";
+const isFlightPlan = (document: ExportedDocument) => /(?:numéro de billet|votre e-ticket|compagnie émettrice|boarding pass|carte d.?embarquement|flight itinerary|billet d.?avion)/i.test(`${document.name}\n${document.excerpt}`);
+const isIdentity = (document: ExportedDocument) => /(?:^|[^a-z])(?:passeport|passport|cni|carte nationale d.?identité)(?:[^a-z]|$)/i.test(document.name) || /(?:document number|numéro de passeport|passport number|passeport n°|carte nationale d.?identité)/i.test(document.excerpt);
+const isHotelVoucher = (document: ExportedDocument) => /(?:^|\n)\s*(?:hotel|hôtel)\s*:/i.test(document.excerpt) || /(?:reservation|booking)[\s\S]{0,180}(?:room|chambre|check.?in|check.?out|plan repas)/i.test(document.excerpt);
+const isTransportVoucher = (document: ExportedDocument) => /(?:pickup date|pickup time|dropoff address|limo|transfer|transfert|chauffeur|train|ferry|car rental)/i.test(`${document.name}\n${document.excerpt}`);
+const isActivityVoucher = (document: ExportedDocument) => /(?:tour\/activity|tour\/?activity|restaurant reservation|activity date|activité|excursion|reservation confirmation)/i.test(`${document.name}\n${document.excerpt}`);
+
+function serviceMatchesDocument(step: TripStep, document: ExportedDocument) {
+  if (step.type === "Vol") { const number = flightNumber(step.title); return Boolean(number && new RegExp(number.replace(" ", "\\s*"), "i").test(document.excerpt)); }
+  const content = `${document.name}\n${document.excerpt}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const words = step.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]{4,}/g) ?? [];
+  const terms = words.filter((word) => !["reservation", "confirmation", "service", "hotel", "las", "vegas", "room", "chambre", "king", "view", "from", "with"].includes(word));
+  return terms.filter((word) => content.includes(word)).length >= Math.min(2, Math.max(1, terms.length));
+}
+
+function enrichArrivals(steps: TripStep[], documents: ExportedDocument[], fallbackYear: string) {
+  return steps.map((step) => {
+    if (step.type !== "Vol") return step;
+    const number = flightNumber(step.title);
+    const document = documents.find((entry) => isFlightPlan(entry) && new RegExp(number.replace(" ", "\\s*"), "i").test(entry.excerpt));
+    if (!document) return step;
+    const start = document.excerpt.search(new RegExp(number.replace(" ", "\\s*"), "i"));
+    const departureStart = document.excerpt.slice(0, Math.max(0, start)).toLowerCase().lastIndexOf("départ");
+    const departureFragment = document.excerpt.slice(Math.max(0, departureStart), start + 120);
+    const departure = departureFragment.match(/Départ\s*:\s*([^\n]{0,75}?)(?:Heure\s*:\s*)(\d{1,2})h(\d{2})/i);
+    const fragment = document.excerpt.slice(Math.max(0, start), start + 700);
+    const arrival = fragment.match(/Arrivée\s*:\s*([^\n]{0,75}?)(?:Heure\s*:\s*)(\d{1,2})h(\d{2})/i);
+    const departureDate = departure ? isoDate(`${departure[1]} ${fallbackYear}`) : step.date;
+    const arrivalDate = arrival ? isoDate(`${arrival[1]} ${fallbackYear}`) : step.arrivalDate;
+    return { ...step, date: departureDate === "—" ? step.date : departureDate, time: departure ? `${departure[2].padStart(2, "0")}:${departure[3]}` : step.time, arrivalDate: arrivalDate === "—" ? step.date : arrivalDate, arrivalTime: arrival ? `${arrival[2].padStart(2, "0")}:${arrival[3]}` : step.arrivalTime };
+  });
+}
+
+export function analyzeTrip(raw: Record<string, unknown>): AuditReport {
+  const structured = exportSteps(raw);
+  if (!structured.length) {
+    const legacy = analyzeLegacyTrip(raw);
+    return { ...legacy, issues: legacy.issues.filter((issue) => issue.id !== "duplicate-date"), checks: [check("legacy-export", "Export", "Structure des données", "pending", "Export historique analysé en mode de compatibilité.", "La collection services[] est absente.", "Réexporter avec l’extension à jour pour activer les contrôles par preuve.")] };
+  }
+
+  const legacy = analyzeLegacyTrip(raw);
+  const documents = exportDocuments(raw);
+  const year = text(raw.generatedAt, new Date().getUTCFullYear().toString()).match(/20\d{2}/)?.[0] ?? new Date().getUTCFullYear().toString();
+  const steps = enrichArrivals(structured, documents, year);
+  const travelers = arrayFrom(raw.travelers).map(String).filter(Boolean);
+  const flights = steps.filter((step) => step.type === "Vol");
+  const hotels = steps.filter((step) => step.type === "Hôtel");
+  const transports = steps.filter((step) => ["Transfert", "Train", "Ferry", "Location voiture"].includes(step.type));
+  const activities = steps.filter((step) => step.type === "Activité");
+  const flightDocuments = documents.filter(isFlightPlan);
+  const identityDocuments = documents.filter(isIdentity);
+  const hotelDocuments = documents.filter(isHotelVoucher);
+  const transportDocuments = documents.filter((document) => isTransportVoucher(document) && !isFlightPlan(document));
+  const activityDocuments = documents.filter((document) => isActivityVoucher(document) && !isFlightPlan(document));
+  const metadataRecord = recordOf(raw.metadata);
+  const combined = `${onSpotText(raw).all}\n${text(metadataRecord.ticketsText, "")}`;
+  const expectedPax = travelerCountFromText(combined);
+  const metadata: AuditMetadata = { ...legacy.metadata, agency: text(first(metadataRecord.agency, legacy.metadata.agency), "Non renseignée"), tripId: text(first(metadataRecord.tripId, legacy.metadata.tripId), "Non renseigné"), profileNotes: Array.from(new Set([...arrayFrom(metadataRecord.profileNotes).map(String), ...legacy.metadata.profileNotes])), identityDocuments: identityDocuments.map((document) => document.name) };
+  const checks: AuditCheck[] = [
+    check("metadata", "Dossier", "Référence et identifiant TripCard", legacy.reference !== "Dossier sans référence" && metadata.tripId !== "Non renseigné" ? "ok" : "pending", legacy.reference !== "Dossier sans référence" ? "Référence et identifiant sont exportés." : "Référence de réservation ou identifiant TripCard incomplet.", `Référence : ${legacy.reference} · Trip ID : ${metadata.tripId}.`, "Compléter ou vérifier les métadonnées du dossier."),
+    check("dates", "Dossier", "Période globale du voyage", legacy.startDate !== "—" && legacy.endDate !== "—" ? "ok" : "critical", legacy.startDate !== "—" && legacy.endDate !== "—" ? "Dates de départ et de retour trouvées." : "La période globale ne peut pas être confirmée.", `Départ : ${legacy.startDate} · retour : ${legacy.endDate}.`, "Vérifier le bandeau TripCard, les vols et les vouchers."),
+    check("travelers", "Voyageurs", "Nombre et liste des voyageurs", expectedPax && travelers.length < expectedPax ? "pending" : travelers.length ? "ok" : "critical", expectedPax && travelers.length < expectedPax ? `Le dossier indique ${expectedPax} voyageurs, mais l’export ne nomme que ${travelers.length}.` : travelers.length ? `${travelers.length} voyageur(s) nommément exporté(s).` : "Aucun voyageur nommé n’est exploitable.", expectedPax ? `Bandeau : ${expectedPax} · noms exportés : ${travelers.length}.` : `${travelers.length} nom(s) exporté(s).`, expectedPax > travelers.length ? "Déplier la liste Voyageurs dans OnSpot puis réexporter avant toute validation nominative." : undefined),
+    check("profile", "Voyageurs", "Notes profil et attentions", metadata.profileNotes.length ? "ok" : "pending", metadata.profileNotes.length ? `${metadata.profileNotes.length} attention(s) exportée(s).` : "Aucune note profil exploitable n’a été exportée.", metadata.profileNotes.length ? metadata.profileNotes.join(" · ") : "Bloc Notes vide ou absent dans l’export.", metadata.profileNotes.length ? undefined : "Vérifier manuellement les notes client ; leur absence d’export ne prouve pas qu’il n’y en a pas."),
+    check("identity", "Documents", "Passeports / CNI réellement joints", identityDocuments.length ? "ok" : "pending", identityDocuments.length ? `${identityDocuments.length} fichier(s) d’identité joint(s) et explicitement identifié(s).` : "Aucun fichier de passeport ou CNI n’est joint dans cet export.", identityDocuments.length ? identityDocuments.map((document) => document.name).join(" · ") : "Les mentions dans des vouchers sont ignorées : elles ne prouvent jamais une pièce d’identité jointe.", identityDocuments.length ? undefined : "Vérifier si les pièces sont requises, puis les joindre ou les exporter si nécessaire."),
+    check("flight-plan", "Vols", "Plans de vol / billets aériens", flights.length === 0 ? "pending" : flightDocuments.length ? "ok" : "critical", flights.length === 0 ? "Aucun vol structuré n’est exporté." : flightDocuments.length ? `${flightDocuments.length} billet(s) ou plan(s) de vol avec marqueurs aéronautiques fiables.` : "Des vols sont présents sans billet aérien ou plan de vol exploitable.", flightDocuments.length ? flightDocuments.map((document) => document.name).join(" · ") : "Aucun fichier ne fournit de numéro de billet, compagnie émettrice ou segment de vol.", flights.length ? (flightDocuments.length ? undefined : "Ajouter le billet aérien aux vouchers puis réexporter.") : "Contrôler l’onglet Vols de l’itinéraire."),
+  ];
+  const addCoverageCheck = (id: string, domain: string, label: string, services: TripStep[], evidence: ExportedDocument[]) => {
+    if (!services.length) return checks.push(check(id, domain, label, "ok", "Non applicable : aucune prestation de ce type n’est exportée.", "services[] ne contient aucune prestation concernée."));
+    const missing = services.filter((service) => !evidence.some((document) => serviceMatchesDocument(service, document)));
+    checks.push(check(id, domain, label, missing.length ? "pending" : "ok", missing.length ? `${missing.length} prestation(s) ne peuvent pas être rapprochées d’un voucher avec suffisamment de certitude.` : `${services.length} prestation(s) comparée(s) à un voucher exploitable.`, missing.length ? `À rapprocher : ${missing.map((service) => `${service.title} (${service.date})`).join(" · ")}.` : evidence.map((document) => document.name).join(" · "), missing.length ? "Vérifier ou joindre le voucher de chaque prestation listée." : undefined));
+  };
+  addCoverageCheck("hotel-vouchers", "Hébergements", "Vouchers hôtels par chambre / date", hotels, hotelDocuments);
+  addCoverageCheck("transport-vouchers", "Transports", "Vouchers transferts, trains, ferries ou voitures", transports, transportDocuments);
+  addCoverageCheck("activity-vouchers", "Activités", "Vouchers activités et réservations", activities, activityDocuments);
+  const conflicts: AuditCheck[] = [];
+  const timed = steps.filter((step) => step.date && step.date !== "—" && timeInMinutes(step.time) !== null);
+  for (let i = 0; i < timed.length; i += 1) for (let j = i + 1; j < timed.length; j += 1) if (timed[i].date === timed[j].date && timed[i].time === timed[j].time && timed[i].type !== timed[j].type) conflicts.push(check(`same-time-${i}-${j}`, "Cohérence", "Prestations distinctes au même horaire", "critical", `${timed[i].title} et ${timed[j].title} sont prévus à ${timed[i].time} le ${timed[i].date}.`, `${timed[i].type} : ${timed[i].title} · ${timed[j].type} : ${timed[j].title}.`, "Vérifier les horaires contractuels et corriger le dossier concerné."));
+  for (const transfer of transports) for (const flight of flights) { const number = flightNumber(flight.title); if (number && transfer.date === flight.date && new RegExp(number.replace(" ", "\\s*"), "i").test(`${transfer.title} ${transfer.location}`) && /departing|départ/i.test(transfer.location) && timeInMinutes(transfer.time) !== null && timeInMinutes(flight.time) !== null && timeInMinutes(transfer.time)! >= timeInMinutes(flight.time)!) conflicts.push(check(`transfer-after-flight-${transfer.id}`, "Cohérence", "Transfert associé postérieur au départ du vol", "critical", `Le transfert associé au ${number} commence à ${transfer.time}, après le départ du vol à ${flight.time}.`, `${transfer.title} · ${transfer.location} · ${transfer.date}.`, "Faire corriger l’heure de prise en charge ou le segment aérien associé.")); }
+  checks.push(...conflicts, check("timeline", "Cohérence", "Séquence des prestations horaires", conflicts.length ? "critical" : "ok", conflicts.length ? `${conflicts.length} conflit(s) horaire(s) objectivé(s).` : `${timed.length} prestation(s) horodatée(s) contrôlée(s) ; aucun conflit démontré.`, conflicts.length ? conflicts.map((item) => item.evidence).join(" · ") : "Le simple fait d’avoir plusieurs prestations le même jour ne génère plus d’alerte.", conflicts.length ? "Traiter les conflits listés." : undefined), check("locations", "Cohérence", "Adresses, lieux et distances", "pending", "Aucune distance n’est certifiée sans coordonnées ou calcul d’itinéraire fiable.", `${steps.filter((step) => step.location && step.location !== "Lieu à confirmer").length}/${steps.length} lieu(x) exporté(s).`, "Vérifier les adresses critiques manuellement ou activer ultérieurement un calcul d’itinéraire optionnel."));
+  const minusOneDay = (date: string) => { const value = new Date(`${date}T12:00:00Z`); if (Number.isNaN(value.getTime())) return date; value.setUTCDate(value.getUTCDate() - 1); return value.toISOString().slice(0, 10); };
+  const addHours = (date: string, time: string, hours: number) => { const value = new Date(`${date}T${time}:00Z`); value.setUTCHours(value.getUTCHours() + hours); return { date: value.toISOString().slice(0, 10), time: value.toISOString().slice(11, 16) }; };
+  const reminders: AuditReminder[] = flights.flatMap((flight) => !flight.date || flight.date === "—" ? [] : [{ id: `checkin-${flight.id}`, kind: "CHECK-IN" as const, date: minusOneDay(flight.date), time: flight.time, timezone: "UTC" as const, label: `Check-in · ${flight.title}`, detail: `À effectuer 24 h avant le départ du ${flight.date}, selon l’UTC.`, status: "pending" as AuditStatus }]);
+  const reconfirmationDocuments = [...transportDocuments, ...activityDocuments].filter((document) => /reconfirm|reconfirmation|reconfirmer|confirm before|24\s*h|h-24/i.test(document.excerpt));
+  for (const service of [...activities, ...transports]) if (service.date && reconfirmationDocuments.some((document) => serviceMatchesDocument(service, document))) reminders.push({ id: `h24-${service.id}`, kind: "H-24", date: minusOneDay(service.date), timezone: "UTC", label: `Reconfirmation · ${service.title}`, detail: `Le voucher associé demande une reconfirmation 24 h avant le ${service.date}.`, status: "pending" });
+  const outboundDate = legacy.startDate !== "—" ? legacy.startDate : flights.map((flight) => flight.date).filter(Boolean).sort()[0];
+  const outboundCandidates = flights.filter((flight) => flight.date === outboundDate && flight.arrivalDate && flight.arrivalTime);
+  const sameDayArrivals = outboundCandidates.filter((flight) => flight.arrivalDate === outboundDate);
+  const outboundArrival = (sameDayArrivals.length ? sameDayArrivals : outboundCandidates).sort((a, b) => `${a.arrivalDate}${a.arrivalTime}`.localeCompare(`${b.arrivalDate}${b.arrivalTime}`)).at(-1);
+  if (outboundArrival?.arrivalDate && outboundArrival.arrivalTime) { const welcome = addHours(outboundArrival.arrivalDate, outboundArrival.arrivalTime, 5); reminders.push({ id: `welcome-${outboundArrival.id}`, kind: "WELCOME", date: welcome.date, time: welcome.time, timezone: "UTC", label: `Welcome call · ${outboundArrival.location}`, detail: "À effectuer 5 h après l’arrivée finale du trajet aller, selon l’UTC.", status: "pending" }); }
+  checks.push(check("reminders", "Rappels", "Rappels opérationnels UTC", flights.length && !outboundArrival ? "pending" : "ok", flights.length ? `${reminders.filter((reminder) => reminder.kind === "CHECK-IN").length} check-in et ${reminders.filter((reminder) => reminder.kind === "WELCOME").length} welcome call calculé(s).` : "Aucun rappel aérien requis.", outboundArrival ? `Arrivée finale du trajet aller : ${outboundArrival.arrivalDate} ${outboundArrival.arrivalTime} UTC.` : "Aucune heure d’arrivée finale du trajet aller exploitable : aucun welcome call n’est inventé.", flights.length && !outboundArrival ? "Ajouter un plan de vol avec heure d’arrivée pour calculer le welcome call." : undefined));
+  const issues = checks.filter((item) => item.status === "critical" || (item.status === "pending" && item.action)).map((item): AuditIssue => ({ id: item.id, severity: item.status === "critical" ? "critical" : "warning", title: item.label, detail: item.finding, source: item.evidence, action: item.action }));
+  const documentChecks: DocumentCheck[] = [{ id: "flight-plan", label: "Plans de vol / billets aériens", category: "flight-plan", status: flights.length ? (flightDocuments.length ? "present" : "missing") : "not-applicable", evidence: flightDocuments.length ? flightDocuments.map((document) => document.name).join(" · ") : "Aucun billet aérien joint avec segments exploitables." }, { id: "identity", label: "Passeports / CNI joints", category: "identity", status: identityDocuments.length ? "present" : "pending", evidence: identityDocuments.length ? identityDocuments.map((document) => document.name).join(" · ") : "Aucune pièce d’identité jointe ; les mentions textuelles sont ignorées." }, { id: "hotels", label: "Vouchers hôtels", category: "hotel", status: hotels.length ? (hotelDocuments.length ? "present" : "pending") : "not-applicable", evidence: `${hotelDocuments.length} voucher(s) exploitable(s) pour ${hotels.length} hébergement(s).` }, { id: "transport", label: "Vouchers transports", category: "transport", status: transports.length ? (transportDocuments.length ? "present" : "pending") : "not-applicable", evidence: `${transportDocuments.length} voucher(s) exploitable(s) pour ${transports.length} transport(s).` }, { id: "activity", label: "Vouchers activités", category: "activity", status: activities.length ? (activityDocuments.length ? "present" : "pending") : "not-applicable", evidence: `${activityDocuments.length} voucher(s) exploitable(s) pour ${activities.length} activité(s).` }];
+  const labels = ["Dossier", "Voyageurs", "Documents", "Vols", "Hébergements", "Transports", "Activités", "Cohérence", "Rappels"];
+  const domains = labels.map((label) => { const entries = checks.filter((item) => item.domain === label); return { label, count: entries.length, status: entries.some((item) => item.status === "critical") ? "critical" as AuditStatus : entries.some((item) => item.status === "pending") ? "warning" as AuditStatus : "ok" as AuditStatus, note: entries.length ? `${entries.filter((item) => item.status === "ok").length}/${entries.length} contrôle(s) conforme(s)` : "Non applicable" }; });
+  return { raw, tripName: legacy.tripName, reference: text(first(raw.reference, legacy.reference), "Dossier sans référence"), destination: legacy.destination, startDate: legacy.startDate, endDate: legacy.endDate, travelers, steps, issues, reminders, metadata, documentChecks, checks, stats: { checked: checks.length, passed: checks.filter((item) => item.status === "ok").length, warnings: checks.filter((item) => item.status === "pending").length, critical: checks.filter((item) => item.status === "critical").length }, domains };
 }
 
 export const demoPayload: Record<string, unknown> = { meta: { reference: "ELT-2026-0814", name: "Sicile — famille Martin", destination: "Sicile, Italie", startDate: "2026-09-14", endDate: "2026-09-23" }, travelers: [{ fullName: "Claire Martin" }, { fullName: "Julien Martin" }, { fullName: "Léa Martin" }], flights: [{ flightNumber: "AF 1186", departureDate: "2026-09-14", departureTime: "09:20", location: "Paris CDG → Catane" }, { flightNumber: "AF 1291", departureDate: "2026-09-23", departureTime: "18:45", location: "Palerme → Paris CDG" }], hotels: [{ name: "Palazzo Sant’Agata", checkIn: "2026-09-14", city: "Catane" }, { name: "Masseria del Sole", checkIn: "2026-09-17", city: "Noto" }, { name: "Casa Marina", checkIn: "2026-09-20", city: "Palerme" }], activities: [{ title: "Etna au lever du jour", date: "2026-09-16", city: "Catane", supplier: "Opérateur local" }, { title: "Cours de cuisine sicilienne", date: "2026-09-19", city: "Noto", supplier: "Opérateur local" }], documents: [{ name: "Voucher Etna", date: "2026-09-16" }, { name: "Billet retour", date: "2026-09-23" }] };

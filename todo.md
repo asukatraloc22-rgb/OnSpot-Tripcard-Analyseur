@@ -47,3 +47,12 @@
 - [ ] Adapter les états de rapport, documents et rappels à la nouvelle hiérarchie visuelle.
 - [ ] Vérifier la lisibilité desktop et mobile, puis intégrer les améliorations de style retenues.
 - [ ] Pousser la refonte et confirmer le déploiement Vercel sur le même SHA.
+
+## Contrôles explicites et faux positifs
+
+- [ ] Reproduire l’alerte générique « plusieurs prestations le même jour » et la remplacer par des conflits prouvés ou une information neutre.
+- [ ] Exiger un fichier joint, une image ou une référence documentaire pour valider un passeport/CNI ; ne jamais valider une simple mention textuelle.
+- [ ] Établir une liste exhaustive de contrôles avec résultat conforme, non applicable, à vérifier ou bloquant et la preuve associée.
+- [ ] Distinguer les données observées, les règles conclues et les actions restantes dans le rapport.
+- [ ] Déterminer les champs de preuve que l’extension doit exporter pour chaque document et prestation.
+- [ ] Confirmer la version locale de l’extension et reconstruire un ZIP si son code est modifié.
