@@ -70,4 +70,4 @@
 - [x] Ajouter les drapeaux de destination de manière fiable et accessible.
 - [x] Finaliser les espaces « Dossiers récents » et « Règles de contrôle » comme vues réellement utilisables.
 - [x] Adapter toutes les actions d’attention pour indiquer précisément ce qui doit être revérifié avec l’agence.
-- [ ] Pousser GitHub et confirmer Vercel sur le même SHA de cette version 2.0.3.
+- [x] Pousser GitHub et confirmer Vercel READY sur le SHA `88e44dc6306229a55ba39d87c353ca1eca1b6c47` de cette version 2.0.3.
