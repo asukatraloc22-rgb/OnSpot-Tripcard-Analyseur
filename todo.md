@@ -50,9 +50,10 @@
 
 ## Contrôles explicites et faux positifs
 
-- [ ] Reproduire l’alerte générique « plusieurs prestations le même jour » et la remplacer par des conflits prouvés ou une information neutre.
-- [ ] Exiger un fichier joint, une image ou une référence documentaire pour valider un passeport/CNI ; ne jamais valider une simple mention textuelle.
-- [ ] Établir une liste exhaustive de contrôles avec résultat conforme, non applicable, à vérifier ou bloquant et la preuve associée.
-- [ ] Distinguer les données observées, les règles conclues et les actions restantes dans le rapport.
-- [ ] Déterminer les champs de preuve que l’extension doit exporter pour chaque document et prestation.
-- [ ] Confirmer la version locale de l’extension et reconstruire un ZIP si son code est modifié.
+- [x] Reproduire l’alerte générique « plusieurs prestations le même jour » et la remplacer par des conflits prouvés ou une information neutre.
+- [x] Exiger un fichier joint, une image ou une référence documentaire pour valider un passeport/CNI ; ne jamais valider une simple mention textuelle.
+- [x] Établir une liste exhaustive de contrôles avec résultat conforme, non applicable, à vérifier ou bloquant et la preuve associée.
+- [x] Distinguer les données observées, les règles conclues et les actions restantes dans le rapport.
+- [x] Déterminer les champs de preuve que l’extension doit exporter pour chaque document et prestation.
+- [x] Confirmer la version locale de l’extension et reconstruire un ZIP si son code est modifié.
+- [x] Valider l’application sur les exports Las Vegas et Japon, puis confirmer GitHub et Vercel sur le SHA `6c083236`.
