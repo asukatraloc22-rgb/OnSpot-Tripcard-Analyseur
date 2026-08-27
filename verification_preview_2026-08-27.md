@@ -41,3 +41,25 @@ Le détail ticket s’ouvre dans une fenêtre dédiée et affiche l’épisode `
 ## Vérification de la timeline avec ticket
 
 L’onglet `Timeline` affiche 4 événements pour le ticket #100574 : rappel H-24 complété, passage de l’attente Back Office à Résolu, réouverture vers En attente (Agence), puis message de l’agence. L’ordre chronologique est correct et la réouverture est lisible comme un changement distinct.
+
+## Preview final après ajout du panneau Elite
+
+URL de déploiement : https://on-spot-tripcard-ticket-preview-qea8z6p16.vercel.app/
+
+Lien temporaire vérifié : https://on-spot-tripcard-ticket-preview-qea8z6p16.vercel.app/?_vercel_share=PNaVF9mvMakYbhiUUIVVP3iTSKVGYXo2
+
+Le déploiement Vercel est en état READY. L’écran d’import se charge sans authentification via le lien temporaire. Le rendu conserve la navigation Trip Card Elite et est prêt à recevoir un export v3.1.0 avec `elite.flags` et `elite.reminderPlan`.
+
+## Test fonctionnel du fixture Elite enrichi
+
+Le fixture `ticket-100574-living-dossier.json` s’importe correctement dans le preview `4zy1abmpo`. L’interface affiche 4 prestations, 1 ticket, 4 événements, 13 contrôles et le drapeau de destination Portugal. La synthèse montre 1 blocage et 5 points à vérifier ; le ticket et la timeline sont disponibles dans les onglets dédiés. Le panneau Actions sera contrôlé séparément pour vérifier les trois drapeaux Elite et le plan de rappels importés.
+
+## Vérification Actions et Tickets
+
+L’onglet Actions affiche bien trois drapeaux importés : un blocage « Contact prestataire manquant », un avertissement de contact client et une information anniversaire. Le plan affiche les responsabilités Agent Elite, Mayara et automatique, les rappels J-10, Welcome Call, H-24, Good Bye Call et compte rendu à J+1, ainsi que deux suggestions proactives à ajouter.
+
+L’onglet Tickets affiche 1 ticket capturé, 1 actif/en attente, 1 urgent, 1 en attente agence et 0 résolu. Le ticket #100574 est correctement classé « Rouvert », avec l’action « Obtenir la réponse attendue de l’agence ou du fournisseur ». Le rendu est lisible et cohérent avec le dossier vivant.
+
+## Vérification Timeline
+
+L’onglet Timeline affiche 4 événements dans l’ordre : rappel H-24 complété, passage de l’attente Back Office à Résolu, réouverture en attente agence, puis message de l’agence. La chronologie ramifiée est lisible et montre correctement qu’une résolution suivie d’un nouvel événement doit être traitée comme une réouverture.
