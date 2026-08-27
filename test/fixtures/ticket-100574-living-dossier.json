@@ -1,97 +1,65 @@
 {
-  "schemaVersion": "3.0.0",
+  "schemaVersion": "3.1.0",
   "source": "onspot-audit-assistant",
   "generatedAt": "2026-08-27T12:00:00.000Z",
-  "collection": {
-    "scope": "current_ticket",
-    "collectionStatus": "complete",
-    "capturedAt": "2026-08-27T12:00:00.000Z",
-    "warnings": []
-  },
   "reference": "TRIP-DEMO-100574",
   "travelers": ["VOYAGEUR_001", "VOYAGEUR_002"],
-  "destination": "Destination de démonstration",
+  "destination": "Lisbonne, Portugal",
   "startDate": "2026-09-14",
   "endDate": "2026-09-23",
   "metadata": {
     "agency": "AGENCE_DEMO",
     "tripId": "trip_demo_100574",
     "package": "ELITE",
-    "profileNotes": [],
-    "ticketsText": ""
+    "profileNotes": ["Anniversaire pendant le séjour — vérifier la date exacte"],
+    "ticketsText": "Le transfert retour reste à confirmer auprès de l’agence.",
+    "captureScope": "current_ticket",
+    "ticketCount": 1
   },
+  "services": [
+    { "id": "flight-out", "type": "flight", "title": "TP 1234 · CDG → LIS", "location": "CDG → LIS", "date": "2026-09-14", "time": "09:20", "arrivalDate": "2026-09-14", "arrivalTime": "11:05" },
+    { "id": "hotel-lisbon", "type": "hotel", "title": "Hotel Demo Lisboa", "location": "Lisbonne", "date": "2026-09-14" },
+    { "id": "transfer-arrival", "type": "transfer", "title": "Transfert arrivée", "location": "Aéroport LIS → hôtel", "date": "2026-09-14", "time": "12:00" },
+    { "id": "activity-demo", "type": "activity", "title": "Visite guidée · reconfirmation H-24", "location": "Lisbonne", "date": "2026-09-16", "time": "10:00" }
+  ],
+  "documents": [
+    { "name": "e-ticket-TP1234.pdf", "kind": "pdf", "category": "flight-plan", "excerpt": "Votre e-ticket · TP 1234 · CDG → LIS · PNR : DEMO12", "extractionStatus": "ok" },
+    { "name": "voucher-hotel-demo.pdf", "kind": "pdf", "category": "hotel", "excerpt": "Hotel: Hotel Demo Lisboa\nCheck-in: 14/09/2026", "extractionStatus": "ok" },
+    { "name": "voucher-transfer-demo.pdf", "kind": "pdf", "category": "transport", "excerpt": "Transfer arrival · Pickup date 14/09/2026 · Chauffeur contact to be confirmed", "extractionStatus": "ok" }
+  ],
   "tickets": [
     {
       "id": "ticket-demo-100574",
       "ticketNumber": "100574",
       "tripRef": "trip_demo_100574",
-      "current": {
-        "status": "En attente (Agence)",
-        "priority": "Urgent",
-        "category": "Vol / transfert",
-        "subject": "Coordonnées de transfert à confirmer",
-        "source": "OnSpot",
-        "assignees": ["Agent_DEMO"],
-        "lastResponseAt": "2026-08-27T10:11:00Z",
-        "lastResponseFrom": "Agence_DEMO"
-      },
-      "classification": {
-        "type": "Incident",
-        "category": "Transport",
-        "subject": "Coordonnées de transfert à confirmer",
-        "intents": ["Résoudre", "Informer le voyageur"],
-        "rootCause": "Information chauffeur absente du voucher",
-        "facetsNeedReview": ["Transfert arrivée"]
-      },
-      "messages": [
-        {
-          "id": "message-demo-1",
-          "text": "Le départ aérien a été modifié. La reprotection est confirmée ; les coordonnées du chauffeur restent à obtenir auprès de l’agence.",
-          "author": "Agence_DEMO",
-          "createdAt": "2026-08-27T10:11:00Z",
-          "visibility": "internal",
-          "source": "onspot-ticket-page"
-        }
-      ],
-      "events": [
-        {
-          "id": "event-demo-1",
-          "kind": "reminder",
-          "createdAt": "2026-08-27T08:00:00Z",
-          "actor": "Agent_DEMO",
-          "summary": "Rappel H-24 complété"
-        }
-      ],
-      "statusTransitions": [
-        {
-          "from": "En attente (Back Office)",
-          "to": "Résolu",
-          "at": "2026-08-27T08:37:00Z",
-          "actor": "Agent_DEMO"
-        },
-        {
-          "from": "Résolu",
-          "to": "En attente (Agence)",
-          "at": "2026-08-27T10:11:00Z",
-          "actor": "Agence_DEMO"
-        }
-      ],
+      "current": { "status": "En attente (Agence)", "priority": "Urgent", "category": "Vol / transfert", "subject": "Coordonnées de transfert à confirmer", "source": "OnSpot", "assignees": ["Agent_DEMO"], "lastResponseAt": "2026-08-27T10:11:00Z", "lastResponseFrom": "Agence_DEMO" },
+      "classification": { "type": "Incident", "category": "Transport", "subject": "Coordonnées de transfert à confirmer", "intents": ["Résoudre", "Informer le voyageur"], "rootCause": "Information chauffeur absente du voucher", "facetsNeedReview": ["Transfert arrivée"] },
+      "messages": [{ "id": "message-demo-1", "text": "La reprotection du vol est confirmée ; les coordonnées du chauffeur restent à obtenir auprès de l’agence.", "author": "Agence_DEMO", "createdAt": "2026-08-27T10:11:00Z", "visibility": "internal", "source": "onspot-ticket-page" }],
+      "events": [{ "id": "event-demo-1", "kind": "reminder", "createdAt": "2026-08-27T08:00:00Z", "actor": "Agent_DEMO", "summary": "Rappel H-24 complété" }],
+      "statusTransitions": [{ "from": "En attente (Back Office)", "to": "Résolu", "at": "2026-08-27T08:37:00Z", "actor": "Agent_DEMO" }, { "from": "Résolu", "to": "En attente (Agence)", "at": "2026-08-27T10:11:00Z", "actor": "Agence_DEMO" }],
       "reminders": [],
-      "attachments": [
-        {
-          "id": "attachment-demo-1",
-          "name": "voucher-transfert-demo.pdf",
-          "kind": "pdf",
-          "extractionStatus": "ok",
-          "excerpt": "Pickup details to be confirmed by local operator."
-        }
-      ],
-      "linkedTickets": [],
-      "sourceRefs": ["https://app.onspot.travel/tickets/demo-100574"]
+      "attachments": [{ "id": "attachment-demo-1", "name": "voucher-transfer-demo.pdf", "kind": "pdf", "extractionStatus": "ok", "excerpt": "Pickup details to be confirmed by local operator." }],
+      "linkedTickets": []
     }
   ],
-  "services": [],
-  "documents": [],
+  "elite": {
+    "flags": [
+      { "id": "provider-contact-missing", "severity": "blocking", "label": "Contact prestataire manquant", "description": "Le transfert est présent mais le téléphone ou l’email du chauffeur n’est pas prouvé.", "action": "Obtenir le contact du transfert auprès de l’agence.", "responsible": "Agent Elite", "evidence": "voucher-transfer-demo.pdf · Chauffeur contact to be confirmed" },
+      { "id": "traveler-contact-agency-email", "severity": "warning", "label": "Email client à confirmer", "description": "Le dossier semble ne conserver qu’un contact d’agence.", "action": "Demander à l’agence l’email et le téléphone directs du voyageur.", "responsible": "Agent Elite" },
+      { "id": "birthday-reminder", "severity": "info", "label": "Anniversaire détecté", "description": "Une attention anniversaire apparaît dans les notes profil.", "action": "Créer le rappel le jour J après vérification de la date.", "responsible": "Agent Elite" }
+    ],
+    "reminderPlan": [
+      { "id": "predeparture-review", "label": "Identification et analyse avant reconfirmation", "owner": "Automatique", "timing": "10 jours avant l’arrivée", "trigger": "arrival_minus_10_days" },
+      { "id": "welcome-call", "label": "Welcome Call", "owner": "Agent Elite", "timing": "À programmer selon l’arrivée locale", "trigger": "arrival" },
+      { "id": "activity-reconfirmation", "label": "Reconfirmation activité", "owner": "Agent Elite", "timing": "H-24", "trigger": "activity_minus_24h", "count": 1 },
+      { "id": "goodbye-call", "label": "Good Bye Call", "owner": "Automatique", "timing": "2 jours avant le retour", "trigger": "return_minus_2_days" },
+      { "id": "post-trip-report", "label": "Compte rendu à l’agence", "owner": "Agent Elite", "timing": "24 h après le retour", "trigger": "return_plus_24h" }
+    ],
+    "internalNote": { "target": "Internal — OnSpot only", "required": true, "content": "", "placeholders": ["Informations importantes pour Mayara", "Décisions et points de vigilance", "Contacts prestataires utiles"] },
+    "proactiveSuggestions": { "required": 2, "suggestions": [{ "id": "suggestion-1", "status": "to_add", "type": "restaurant", "content": "" }, { "id": "suggestion-2", "status": "to_add", "type": "activity", "content": "" }] },
+    "responsibilities": { "agentElite": ["Welcome Call", "Here For You / FUP", "reconfirmation des activités H-24", "compte rendu post-voyage"], "mayara": ["Boarding pass"], "automatic": ["analyse à J-10", "Good Bye Call à J-2"] },
+    "summary": { "blocking": 1, "warning": 1, "info": 1 }
+  },
   "itinerary": {},
   "vouchersSummary": "Ticket de démonstration anonymisé."
 }
