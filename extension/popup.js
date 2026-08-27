@@ -9,6 +9,28 @@ const analyzeBtn = document.getElementById('analyzeBtn');
 const copyTripCardBtn = document.getElementById('copyTripCardBtn');
 const downloadTripCardBtn = document.getElementById('downloadTripCardBtn');
 const statusBox = document.getElementById('status');
+const captureScope = document.getElementById('captureScope');
+const scopeHelp = document.getElementById('scopeHelp');
+
+const scopeLabels = {
+  trip_only: 'Voyage uniquement',
+  current_ticket: 'Ticket courant',
+  trip_and_active_tickets: 'Voyage + tickets actifs',
+  selected_tickets: 'Tickets sélectionnés',
+  all_trip_tickets: 'Tous les tickets du voyage',
+  section_tickets: 'Tickets de la section courante'
+};
+const scopeHelpText = {
+  trip_only: 'Métadonnées, itinéraire, vouchers et documents visibles.',
+  current_ticket: 'Capture le ticket ouvert, sa chronologie, ses rappels et ses pièces jointes.',
+  trip_and_active_tickets: 'Capture le voyage ; les tickets actifs seront ajoutés dans une prochaine passe multi-page.',
+  selected_tickets: 'Le ticket ouvert est capturé si vous êtes sur une page ticket ; sinon le voyage est exporté.',
+  all_trip_tickets: 'Le voyage est capturé ; la collecte multi-ticket sera activée avec la pagination.',
+  section_tickets: 'La section courante est mémorisée ; ouvrez un ticket pour capturer son détail.'
+};
+if (captureScope && scopeHelp) {
+  captureScope.addEventListener('change', () => { scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only; });
+}
 
 let lastResult = null; // conserve le dernier résultat d'analyse pour les deux boutons
 
@@ -39,18 +61,23 @@ analyzeBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("Impossible de récupérer l'onglet actif.");
 
-    logStatus('Onglet actif détecté : ' + tab.url, 'info');
-    setLoading(analyzeBtn, true, 'Extraction par onglet itinéraire...', 'Analyser Page + Vouchers');
+    const scope = captureScope?.value || 'trip_only';
+    logStatus(`Onglet actif détecté : ${tab.url}`, 'info');
+    logStatus(`Périmètre : ${scopeLabels[scope] || scope}`, 'info');
+    setLoading(analyzeBtn, true, 'Extraction du périmètre...', 'Capturer le périmètre');
 
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: extractPageContentPerTabAndFiles,
+      args: [scope],
     });
 
     const pageData = injectionResult.result;
     if (!pageData) throw new Error("Aucune donnée retournée depuis la page.");
 
     logStatus(`Contenu extrait pour ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length} onglet(s) d'itinéraire.`, 'ok');
+    if (pageData.ticket) logStatus(`Ticket courant capturé : #${pageData.ticket.ticketNumber} · ${pageData.ticket.statusTransitions.length} transition(s).`, 'ok');
+    if (pageData.collectionWarning) logStatus(`⚠ ${pageData.collectionWarning}`, 'warn');
     logStatus(`${pageData.pdfUrls.length} PDF(s), ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s) détecté(s).`, 'info');
 
     // PDF
@@ -142,7 +169,7 @@ downloadTripCardBtn.addEventListener('click', () => {
 // =========================================================================
 // Fonction injectée dans la page active — extraction PAR ONGLET
 // =========================================================================
-function extractPageContentPerTabAndFiles() {
+function extractPageContentPerTabAndFiles(scope = 'trip_only') {
   return new Promise(async (resolve) => {
     const mainTabDefs = [
       { key: 'itineraireMain', labels: ['Itinéraire', 'Itinerary'] }
@@ -215,6 +242,41 @@ function extractPageContentPerTabAndFiles() {
     const ticketsPresence = { detected: Boolean(ticketMatch || /\bTickets?\b/i.test(initialSnapshot)), count: ticketMatch ? Number(ticketMatch[1]) : null, evidence: ticketMatch ? ticketMatch[0] : (/\bTickets?\b/i.test(initialSnapshot) ? 'Onglet Tickets visible sur la page principale.' : 'Aucun onglet Tickets visible dans la capture initiale.') };
     scanFilesOnCurrentDOM();
 
+    function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function extractCurrentTicket() {
+      const fullText = (document.body.innerText || '').trim();
+      const pathId = window.location.pathname.match(/\/tickets\/([^/?#]+)/i)?.[1] || '';
+      const number = fullText.match(/Ticket\s*#\s*(\d+)/i)?.[1] || pathId;
+      const statuses = ['En attente (Agence)', 'En attente (Voyageur)', 'En attente (Back Office)', 'En attente (Front Office)', 'En attente (Rappels)', 'En cours', 'Résolu', 'Nouveau', 'Ouvert', 'Clôturé'];
+      const priorities = ['Urgent', 'Immédiat', 'Haute', 'Normal', 'Basse'];
+      const currentStatus = statuses.find(value => fullText.split(/\n+/).some(line => line.trim() === value)) || 'Statut non exporté';
+      const currentPriority = priorities.find(value => fullText.split(/\n+/).some(line => line.trim() === value)) || 'Priorité non exportée';
+      const transitions = [];
+      const events = [];
+      const lines = fullText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      lines.forEach((line, index) => {
+        const status = line.match(/^(.+?) a changé le statut de (.+?) à (.+)$/i);
+        if (status) {
+          const at = lines[index + 1]?.match(/^\d{1,2}:\d{2}$/) ? lines[index + 1] : undefined;
+          transitions.push({ from: status[2], to: status[3], at, actor: status[1] });
+          events.push({ id: `status-${index}`, kind: 'status', createdAt: at, actor: status[1], summary: `${status[2]} → ${status[3]}` });
+        }
+        const priority = line.match(/^(.+?) a changé la priorité de (.+?) à (.+)$/i);
+        if (priority) events.push({ id: `priority-${index}`, kind: 'priority', createdAt: lines[index + 1], actor: priority[1], summary: `Priorité ${priority[2]} → ${priority[3]}` });
+        if (/a défini un rappel|a complété un rappel|rappel/i.test(line) && line.length < 180) events.push({ id: `reminder-${index}`, kind: 'reminder', createdAt: lines[index + 1], actor: line.split(' a ')[0], summary: line });
+      });
+      const messageText = fullText.slice(Math.max(0, fullText.indexOf('Début de la conversation')), Math.max(0, fullText.indexOf('Répondre')) || fullText.length).trim();
+      const attachmentUrls = [...pdfUrlSet, ...docxUrlSet, ...xlsxUrlSet, ...imageUrlSet];
+      const attachments = attachmentUrls.map((url, index) => ({ id: `attachment-${index + 1}`, name: decodeURIComponent(url.split('/').pop()?.split('?')[0] || `Pièce jointe ${index + 1}`), kind: /\.pdf($|\?)/i.test(url) ? 'pdf' : /\.(?:png|jpe?g|webp|gif)($|\?)/i.test(url) ? 'image' : 'file', url, extractionStatus: 'not_attempted' }));
+      const tripRef = fullText.match(/Voyage Lié\s+(\d{6,})/i)?.[1] || fullText.match(/Trip\s+(\d{6,})/i)?.[1] || undefined;
+      const subject = fullText.match(/Classification[\s\S]{0,500}?Sujet[\s\S]{0,120}?\n([^\n]+)/i)?.[1]?.trim() || '';
+      return { id: pathId || `ticket-${number}`, ticketNumber: number, status: currentStatus, priority: currentPriority, subject, tripRef, conversationText: messageText, messages: messageText ? [{ id: 'conversation', text: messageText, visibility: 'unknown', source: 'onspot-ticket-page' }] : [], events, statusTransitions: transitions, reminders: [], attachments, linkedTickets: [], sourceRefs: [window.location.href] };
+    }
+    const isTicketPage = /\/tickets\//i.test(window.location.pathname);
+    const shouldCaptureTicket = isTicketPage && ['current_ticket', 'selected_tickets', 'trip_and_active_tickets', 'all_trip_tickets', 'section_tickets'].includes(scope);
+    const ticket = shouldCaptureTicket ? extractCurrentTicket() : null;
+    const collectionWarning = !isTicketPage && scope !== 'trip_only' ? 'Ce périmètre nécessite une page ticket ou une navigation multi-page ; le voyage seul a été conservé dans cet export.' : null;
+
     const itinerary = {};
 
     // 1) Cliquer sur l'onglet principal "Itinéraire" pour révéler ses sous-onglets
@@ -271,6 +333,9 @@ function extractPageContentPerTabAndFiles() {
       docxUrls: Array.from(docxUrlSet),
       xlsxUrls: Array.from(xlsxUrlSet),
       imageUrls: Array.from(imageUrlSet),
+      ticket,
+      scope,
+      collectionWarning,
       pageUrl: window.location.href,
       pageTitle: document.title
     });
@@ -378,10 +443,16 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   ].map((file) => ({ ...file, ...classifyDocument(file) }));
   const profileNotes = Array.from(new Set((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)));
   const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
+  const capturedTicket = pageData.ticket ? { ...pageData.ticket, attachments: pageData.ticket.attachments.map((attachment) => {
+    const extracted = [...pdfTexts, ...docxTexts, ...xlsxTexts].find(item => item.url === attachment.url);
+    return extracted ? { ...attachment, excerpt: extracted.text.slice(0, 6000), extractionStatus: extracted.text.startsWith('[ERREUR') ? 'error' : 'ok' } : attachment;
+  }) } : null;
   return {
-    schemaVersion: '2.0.2', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
+    schemaVersion: '3.0.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
+    collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [] },
     reference, travelers,
-    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' } },
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: pageData.ticket?.conversationText || '' },
+    tickets: capturedTicket ? [capturedTicket] : [],
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
     documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, hotels: files.filter((file) => file.category === 'hotel').length, transports: files.filter((file) => file.category === 'transport').length, activities: files.filter((file) => file.category === 'activity').length, unclassified: files.filter((file) => file.category === 'other').length },
     itinerary: pageData.itinerary, vouchersSummary: buildVouchersSummaryText({ pageData, pdfTexts, docxTexts, xlsxTexts })

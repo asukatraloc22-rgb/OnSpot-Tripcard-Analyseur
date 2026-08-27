@@ -8,11 +8,14 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardPaste,
+  Clock3,
   FileJson,
   Flag,
+  GitBranch,
   Gauge,
   Inbox,
   MapPin,
+  MessageSquare,
   Paperclip,
   Plane,
   RotateCcw,
@@ -37,9 +40,10 @@ import {
   type FlightDetail,
   type TripStep,
 } from "@/lib/audit";
+import { ticketStats, type Ticket } from "@/lib/tickets";
 
 const markUrl = "/onspot-favicon.svg";
-type Tab = "overview" | "checks" | "itinerary" | "actions" | "documents";
+type Tab = "overview" | "checks" | "itinerary" | "documents" | "actions" | "tickets" | "timeline";
 type Workspace = "audit" | "recent" | "rules";
 type RecentStore = { savedAt: string; report: AuditReport };
 type ChecklistFilter = "all" | "remaining" | "completed";
@@ -468,6 +472,80 @@ function FlightDetailDialog({
   );
 }
 
+const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À qualifier" }[episode]);
+const ticketEpisodeStatus = (episode: Ticket["episode"]): AuditStatus => episode === "resolved" ? "ok" : episode === "reopened" ? "critical" : episode === "unknown" ? "pending" : "warning";
+
+function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }) {
+  const status = ticketEpisodeStatus(ticket.episode);
+  return (
+    <article className="ticket-card">
+      <div className="ticket-card-top">
+        <div>
+          <span className="eyebrow">Ticket #{ticket.ticketNumber} · {ticket.current.category || "Sans catégorie"}</span>
+          <h3>{ticket.current.subject || ticket.classification.subject || "Ticket à qualifier"}</h3>
+        </div>
+        <StatusPill status={status} />
+      </div>
+      <div className="ticket-card-facts">
+        <span className="ticket-chip"><GitBranch size={12} />{ticketEpisodeLabel(ticket.episode)}</span>
+        <span className="ticket-chip"><Flag size={12} />{ticket.current.priority || "Priorité non exportée"}</span>
+        {ticket.current.lastResponseFrom ? <span className="ticket-chip"><MessageSquare size={12} />{ticket.current.lastResponseFrom}</span> : null}
+      </div>
+      <p className="ticket-card-summary">{ticket.whatRemains[0] || "Aucune action restante détectée dans l’export."}</p>
+      <div className="ticket-card-bottom">
+        <span className="mono">{ticket.messages.length} message{ticket.messages.length > 1 ? "s" : ""} · {ticket.attachments.length} pièce{ticket.attachments.length > 1 ? "s" : ""}</span>
+        <button className="text-button" onClick={onOpen}>Ouvrir le ticket <ChevronRight size={14} /></button>
+      </div>
+    </article>
+  );
+}
+
+function TicketsPanel({ tickets, onOpen }: { tickets: Ticket[]; onOpen: (ticket: Ticket) => void }) {
+  const [filter, setFilter] = useState<"all" | "active" | "resolved" | "urgent">("all");
+  const stats = ticketStats(tickets);
+  const visible = tickets.filter(ticket => filter === "all" || filter === "active" && ["new", "active", "waiting", "reopened"].includes(ticket.episode) || filter === "resolved" && ticket.episode === "resolved" || filter === "urgent" && /urgent|immediate|immédiat/i.test(ticket.current.priority || ""));
+  return (
+    <div className="tab-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Dossier vivant · traitement opérationnel</p>
+          <h2>Tickets du voyage</h2>
+        </div>
+        <span className="mono">{stats.total} CAPTURÉ{stats.total > 1 ? "S" : ""}</span>
+      </div>
+      <div className="ticket-summary-grid">
+        <button className={filter === "active" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("active")}><b>{stats.active}</b><span>Actifs / en attente</span></button>
+        <button className={filter === "urgent" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("urgent")}><b>{stats.urgent}</b><span>Urgents</span></button>
+        <button className={filter === "active" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("active")}><b>{stats.waitingAgency}</b><span>En attente agence</span></button>
+        <button className={filter === "resolved" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("resolved")}><b>{stats.resolved}</b><span>Résolus</span></button>
+      </div>
+      <div className="ticket-filter-row">
+        {([["all", "Tous"], ["active", "À traiter"], ["urgent", "Urgents"], ["resolved", "Résolus"]] as const).map(([key, label]) => <button key={key} className={filter === key ? "filter-pill active" : "filter-pill"} onClick={() => setFilter(key)}>{label}</button>)}
+      </div>
+      {visible.length ? <div className="ticket-list">{visible.map(ticket => <TicketCard key={ticket.id} ticket={ticket} onOpen={() => onOpen(ticket)} />)}</div> : <div className="clear-state"><CheckCircle2 size={22} /><div><b>Aucun ticket dans ce filtre.</b><p>La capture ne contient pas de ticket correspondant à cette sélection.</p></div></div>}
+    </div>
+  );
+}
+
+function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
+  const rows = tickets.flatMap(ticket => [
+    ...ticket.statusTransitions.map((item, index) => ({ id: `${ticket.id}-status-${index}`, at: item.at, kind: "Statut", title: `${item.from || "Début"} → ${item.to}`, body: item.actor ? `Par ${item.actor}` : "Transition enregistrée", ticket: ticket.ticketNumber })),
+    ...ticket.messages.map(message => ({ id: `${ticket.id}-${message.id}`, at: message.createdAt, kind: "Message", title: message.author || "Message ticket", body: message.text, ticket: ticket.ticketNumber })),
+    ...ticket.events.filter(event => event.kind !== "message").map(event => ({ id: `${ticket.id}-${event.id}`, at: event.createdAt, kind: event.kind, title: event.summary, body: event.actor ? `Par ${event.actor}` : "Événement système", ticket: ticket.ticketNumber })),
+  ]).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+  return (
+    <div className="tab-panel">
+      <div className="panel-heading"><div><p className="eyebrow">Chronologie unifiée · tickets et décisions</p><h2>Branches de résolution</h2></div><span className="mono">{rows.length} ÉVÉNEMENTS</span></div>
+      <p className="checks-intro">Le tronc représente le voyage ; chaque événement est rattaché au ticket qui l’a produit. Une résolution suivie d’un nouveau message reste visible comme une réouverture, jamais comme une anomalie masquée.</p>
+      {rows.length ? <div className="ticket-timeline">{rows.map(row => <div className="ticket-timeline-row" key={row.id}><div className="ticket-timeline-rail"><span /><i /></div><div className="ticket-timeline-copy"><div className="step-meta"><span>{row.kind} · ticket #{row.ticket}</span><span className="mono">{row.at || "Date non exportée"}</span></div><h3>{row.title}</h3><p>{row.body}</p></div></div>)}</div> : <div className="clear-state"><Clock3 size={22} /><div><b>Aucun événement ticket capturé.</b><p>Utilisez le mode ticket courant ou tickets du voyage dans l’extension.</p></div></div>}
+    </div>
+  );
+}
+
+function TicketDialog({ ticket, onClose }: { ticket: Ticket; onClose: () => void }) {
+  return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · dossier vivant</p><h2>{ticket.current.subject || ticket.classification.subject || "Ticket"}</h2><p>{ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-detail-grid"><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div><div><span>Catégorie</span><b>{ticket.current.category || "À qualifier"}</b></div><div><span>Assignés</span><b>{ticket.current.assignees.join(" · ") || "Non exporté"}</b></div><div><span>Restant</span><b>{ticket.whatRemains.length}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Prochaine action détectée</span><p>{ticket.nextAction || "Aucune action restante déterminée automatiquement."}</p></div></section><div className="ticket-dialog-section"><p className="eyebrow">Derniers messages</p>{ticket.messages.length ? ticket.messages.slice(-6).map(message => <article className="ticket-message" key={message.id}><div><b>{message.author || "Auteur non exporté"}</b><span>{message.createdAt || "Date non exportée"}</span></div><p>{message.text}</p></article>) : <p className="empty-line">Aucun message structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
+}
+
 function EmptyImport({
   onDemo,
   onPaste,
@@ -805,6 +883,7 @@ export default function Home() {
   );
   const [resolved, setResolved] = useState<string[]>([]);
   const [showRaw, setShowRaw] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [selectedFlight, setSelectedFlight] = useState<FlightDetail | null>(() => {
     const requestedFlight = new URLSearchParams(window.location.search).get("flight");
     return requestedFlight && report ? report.flightDetails.find(flight => flight.flightId === requestedFlight) ?? null : null;
@@ -1188,7 +1267,21 @@ export default function Home() {
                   >
                     Actions <span>{unresolved.length || "·"}</span>
                   </button>
+                  <button
+                    className={tab === "tickets" ? "tab active" : "tab"}
+                    onClick={() => setTab("tickets")}
+                  >
+                    Tickets <span>{report.tickets.length || "·"}</span>
+                  </button>
+                  <button
+                    className={tab === "timeline" ? "tab active" : "tab"}
+                    onClick={() => setTab("timeline")}
+                  >
+                    Timeline <span>{report.tickets.reduce((total, ticket) => total + ticket.messages.length + ticket.events.length + ticket.statusTransitions.length, 0) || "·"}</span>
+                  </button>
                 </div>
+                {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} /> : null}
+                {tab === "timeline" ? <TicketTimeline tickets={report.tickets} /> : null}
                 {tab === "overview" ? (
                   <div className="overview-stack">
                     <div className="section-intro">
@@ -1677,6 +1770,7 @@ export default function Home() {
           </div>
         </div>
       ) : null}
+      {selectedTicket ? <TicketDialog ticket={selectedTicket} onClose={() => setSelectedTicket(null)} /> : null}
       {selectedFlight ? (
         <FlightDetailDialog
           flight={selectedFlight}
