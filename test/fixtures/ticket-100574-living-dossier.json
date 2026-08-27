@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "3.0.0",
+  "source": "onspot-audit-assistant",
+  "generatedAt": "2026-08-27T12:00:00.000Z",
+  "collection": {
+    "scope": "current_ticket",
+    "collectionStatus": "complete",
+    "capturedAt": "2026-08-27T12:00:00.000Z",
+    "warnings": []
+  },
+  "reference": "TRIP-DEMO-100574",
+  "travelers": ["VOYAGEUR_001", "VOYAGEUR_002"],
+  "destination": "Destination de démonstration",
+  "startDate": "2026-09-14",
+  "endDate": "2026-09-23",
+  "metadata": {
+    "agency": "AGENCE_DEMO",
+    "tripId": "trip_demo_100574",
+    "package": "ELITE",
+    "profileNotes": [],
+    "ticketsText": ""
+  },
+  "tickets": [
+    {
+      "id": "ticket-demo-100574",
+      "ticketNumber": "100574",
+      "tripRef": "trip_demo_100574",
+      "current": {
+        "status": "En attente (Agence)",
+        "priority": "Urgent",
+        "category": "Vol / transfert",
+        "subject": "Coordonnées de transfert à confirmer",
+        "source": "OnSpot",
+        "assignees": ["Agent_DEMO"],
+        "lastResponseAt": "2026-08-27T10:11:00Z",
+        "lastResponseFrom": "Agence_DEMO"
+      },
+      "classification": {
+        "type": "Incident",
+        "category": "Transport",
+        "subject": "Coordonnées de transfert à confirmer",
+        "intents": ["Résoudre", "Informer le voyageur"],
+        "rootCause": "Information chauffeur absente du voucher",
+        "facetsNeedReview": ["Transfert arrivée"]
+      },
+      "messages": [
+        {
+          "id": "message-demo-1",
+          "text": "Le départ aérien a été modifié. La reprotection est confirmée ; les coordonnées du chauffeur restent à obtenir auprès de l’agence.",
+          "author": "Agence_DEMO",
+          "createdAt": "2026-08-27T10:11:00Z",
+          "visibility": "internal",
+          "source": "onspot-ticket-page"
+        }
+      ],
+      "events": [
+        {
+          "id": "event-demo-1",
+          "kind": "reminder",
+          "createdAt": "2026-08-27T08:00:00Z",
+          "actor": "Agent_DEMO",
+          "summary": "Rappel H-24 complété"
+        }
+      ],
+      "statusTransitions": [
+        {
+          "from": "En attente (Back Office)",
+          "to": "Résolu",
+          "at": "2026-08-27T08:37:00Z",
+          "actor": "Agent_DEMO"
+        },
+        {
+          "from": "Résolu",
+          "to": "En attente (Agence)",
+          "at": "2026-08-27T10:11:00Z",
+          "actor": "Agence_DEMO"
+        }
+      ],
+      "reminders": [],
+      "attachments": [
+        {
+          "id": "attachment-demo-1",
+          "name": "voucher-transfert-demo.pdf",
+          "kind": "pdf",
+          "extractionStatus": "ok",
+          "excerpt": "Pickup details to be confirmed by local operator."
+        }
+      ],
+      "linkedTickets": [],
+      "sourceRefs": ["https://app.onspot.travel/tickets/demo-100574"]
+    }
+  ],
+  "services": [],
+  "documents": [],
+  "itinerary": {},
+  "vouchersSummary": "Ticket de démonstration anonymisé."
+}
