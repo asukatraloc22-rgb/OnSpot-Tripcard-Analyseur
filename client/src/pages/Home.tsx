@@ -37,6 +37,8 @@ import {
   type AuditReport,
   type AuditStatus,
   type DocumentCheck,
+  type EliteFlag,
+  type ElitePlan,
   type FlightDetail,
   type TripStep,
 } from "@/lib/audit";
@@ -544,6 +546,35 @@ function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
 
 function TicketDialog({ ticket, onClose }: { ticket: Ticket; onClose: () => void }) {
   return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · dossier vivant</p><h2>{ticket.current.subject || ticket.classification.subject || "Ticket"}</h2><p>{ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-detail-grid"><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div><div><span>Catégorie</span><b>{ticket.current.category || "À qualifier"}</b></div><div><span>Assignés</span><b>{ticket.current.assignees.join(" · ") || "Non exporté"}</b></div><div><span>Restant</span><b>{ticket.whatRemains.length}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Prochaine action détectée</span><p>{ticket.nextAction || "Aucune action restante déterminée automatiquement."}</p></div></section><div className="ticket-dialog-section"><p className="eyebrow">Derniers messages</p>{ticket.messages.length ? ticket.messages.slice(-6).map(message => <article className="ticket-message" key={message.id}><div><b>{message.author || "Auteur non exporté"}</b><span>{message.createdAt || "Date non exportée"}</span></div><p>{message.text}</p></article>) : <p className="empty-line">Aucun message structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
+}
+
+function ElitePlanPanel({ plan }: { plan: ElitePlan }) {
+  const severityLabel = (severity: EliteFlag["severity"]) => severity === "blocking" ? "Bloquant" : severity === "warning" ? "À vérifier" : "Info";
+  return (
+    <section className="elite-plan-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Référentiel Elite · preuves → décision</p>
+          <h2>Drapeaux & responsabilités</h2>
+        </div>
+        <span className="mono">{plan.summary.blocking} BLOQUANT{plan.summary.blocking > 1 ? "S" : ""} · {plan.summary.warning} À VÉRIFIER</span>
+      </div>
+      {plan.flags.length ? <div className="elite-flag-list">{plan.flags.map(flag => (
+        <article className={`elite-flag elite-flag-${flag.severity}`} key={flag.id}>
+          <div className="elite-flag-top"><span className="ticket-chip"><Flag size={12} />{severityLabel(flag.severity)}</span><span className="mono">{flag.responsible || "Agent Elite"}</span></div>
+          <h3>{flag.label}</h3>
+          <p>{flag.description}</p>
+          <strong>À faire : {flag.action}</strong>
+          {flag.evidence ? <small>Preuve : {flag.evidence}</small> : null}
+        </article>
+      ))}</div> : <div className="clear-state"><CheckCircle2 size={22} /><div><b>Aucun drapeau Elite généré.</b><p>Le paquet ne contient pas encore de règles Elite exportées.</p></div></div>}
+      <div className="elite-ops-grid">
+        <div className="elite-ops-card"><p className="eyebrow">Rappels attendus</p>{plan.reminderPlan.map(reminder => <div className="elite-reminder-row" key={reminder.id}><b>{reminder.label}</b><span>{reminder.owner} · {reminder.timing}{reminder.count ? ` · ${reminder.count}` : ""}</span></div>)}</div>
+        <div className="elite-ops-card"><p className="eyebrow">Note Internal — OnSpot only</p><p>{plan.internalNote.required ? "À préparer pour Mayara et l’équipe opérationnelle." : "Non requise dans cet export."}</p>{plan.internalNote.placeholders.map(item => <span className="elite-placeholder" key={item}>{item}</span>)}</div>
+        <div className="elite-ops-card"><p className="eyebrow">Proactivité</p><p>{plan.proactiveSuggestions.required} suggestions minimum à ajouter.</p>{plan.proactiveSuggestions.suggestions.map(item => <span className="elite-placeholder" key={item.id}>{item.type} · {item.status === "to_add" ? "à ajouter" : item.status}</span>)}</div>
+      </div>
+    </section>
+  );
 }
 
 function EmptyImport({
@@ -1646,6 +1677,7 @@ export default function Home() {
                         TRAITÉES
                       </span>
                     </div>
+                    <ElitePlanPanel plan={report.elite} />
                     <div className="issues-list">
                       {report.issues.length ? (
                         report.issues.map(issue => (
