@@ -921,6 +921,68 @@ export default function Home() {
   });
   const [searchTerm, setSearchTerm] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const buildCompleteDossierCopy = (nextReport: AuditReport) => ({
+    trip: {
+      reference: nextReport.reference,
+      tripName: nextReport.tripName,
+      destination: nextReport.destination,
+      startDate: nextReport.startDate,
+      endDate: nextReport.endDate,
+      travelers: nextReport.travelers,
+      itinerary: nextReport.steps,
+    },
+    tickets: nextReport.tickets.map(ticket => ({
+      id: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      episode: ticket.episode,
+      current: ticket.current,
+      classification: ticket.classification,
+      messages: ticket.messages,
+      events: ticket.events,
+      statusTransitions: ticket.statusTransitions,
+      reminders: ticket.reminders,
+      attachments: ticket.attachments,
+      linkedTickets: ticket.linkedTickets,
+      whatRemains: ticket.whatRemains,
+      nextAction: ticket.nextAction,
+    })),
+    summary: {
+      totalSteps: nextReport.steps.length,
+      totalTickets: nextReport.tickets.length,
+      resolved: nextReport.tickets.filter(ticket => ticket.episode === "resolved").length,
+      pending: nextReport.tickets.filter(ticket => ["new", "active", "waiting", "reopened", "unknown"].includes(ticket.episode)).length,
+    },
+  });
+  const copyCompleteDossier = async () => {
+    if (!report) {
+      toast.info("Importez d’abord un dossier.");
+      return;
+    }
+
+    const payload = buildCompleteDossierCopy(report);
+    const json = JSON.stringify(payload, null, 2);
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(json);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = json;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
+      toast.success("Dossier complet copié", {
+        description: `${report.steps.length} étape(s) d’itinéraire · ${report.tickets.length} ticket(s) inclus.`,
+      });
+    } catch {
+      toast.error("Copie impossible", {
+        description: "Le navigateur a bloqué l’accès au presse-papiers. Copiez le JSON manuellement.",
+      });
+    }
+  };
   const recentReports = useMemo<RecentStore[]>(() => {
     try {
       const parsed = JSON.parse(
@@ -1149,6 +1211,14 @@ export default function Home() {
               aria-label="Afficher le JSON"
             >
               <FileJson size={17} />
+            </button>
+            <button
+              className="button button-secondary compact"
+              onClick={copyCompleteDossier}
+              disabled={!report}
+            >
+              <ClipboardPaste size={15} />
+              Copier le dossier complet
             </button>
             <button
               className="button button-primary compact"

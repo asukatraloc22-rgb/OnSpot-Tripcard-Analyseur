@@ -230,9 +230,47 @@ export function normalizeTicket(value: unknown, index = 0): Ticket {
   return ticket;
 }
 
+const isTicketLike = (value: unknown): value is Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return ["id", "ticketId", "ticketNumber", "ticket_number", "number", "status", "current", "messages", "events", "attachments", "linkedTickets", "tripRef", "trip_id"].some((key) => key in record);
+};
+
+const collectTicketCandidates = (value: unknown, seen = new WeakSet<object>()): unknown[] => {
+  if (!value || typeof value !== "object") return [];
+  if (seen.has(value as object)) return [];
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    const directTicketObjects = value.filter(isTicketLike);
+    if (directTicketObjects.length) return directTicketObjects;
+    return value.flatMap((item) => collectTicketCandidates(item, seen));
+  }
+
+  const record = value as Record<string, unknown>;
+  if (isTicketLike(record)) return [record];
+
+  const nested = Object.values(record).flatMap((item) => collectTicketCandidates(item, seen));
+  if (nested.length) return nested;
+
+  return Object.entries(record)
+    .filter(([key]) => /ticket|tickets|item|items|result|results|data|records/i.test(key))
+    .flatMap(([, item]) => collectTicketCandidates(item, seen));
+};
+
 export function extractTickets(raw: Record<string, unknown>): Ticket[] {
-  const candidates = raw.tickets ?? asRecord(raw.metadata).tickets ?? asRecord(raw.trip).tickets;
-  return asArray(candidates).map(normalizeTicket);
+  const candidates = collectTicketCandidates(raw)
+    .map((item) => normalizeTicket(item))
+    .filter(Boolean);
+
+  const merged = new Map<string, Ticket>();
+  for (const candidate of candidates) {
+    const key = candidate.id || candidate.ticketNumber;
+    if (!key) continue;
+    merged.set(key, candidate);
+  }
+
+  return Array.from(merged.values()).sort((a, b) => (b.current.lastResponseAt ?? "").localeCompare(a.current.lastResponseAt ?? ""));
 }
 
 export function mergeTickets(existing: Ticket[], incoming: Ticket[]): Ticket[] {

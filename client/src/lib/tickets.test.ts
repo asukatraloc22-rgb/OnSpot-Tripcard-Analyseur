@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeTrip } from "./audit";
-import { mergeTickets, normalizeTicket } from "./tickets";
+import { extractTickets, mergeTickets, normalizeTicket } from "./tickets";
 
 describe("living dossier tickets", () => {
   it("identifie un ticket rouvert après une résolution", () => {
@@ -25,6 +25,26 @@ describe("living dossier tickets", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].messages).toHaveLength(2);
     expect(merged[0].current.status).toBe("En Cours");
+  });
+
+  it("extrait les tickets imbriqués avec les statuts pending et resolved", () => {
+    const raw = {
+      metadata: {
+        tickets: {
+          items: [
+            { id: "t-1", current: { status: "Pending" }, messages: [{ id: "m-1", text: "Demande d’information" }] },
+            { id: "t-2", current: { status: "Resolved" }, messages: [{ id: "m-2", text: "Problème corrigé" }] },
+          ],
+        },
+      },
+      tickets: {
+        results: [{ id: "t-3", current: { status: "En attente (Agence)" }, messages: [{ id: "m-3", text: "La réponse attendue de l’agence" }] }],
+      },
+    };
+    const extracted = extractTickets(raw as Record<string, unknown>);
+
+    expect(extracted).toHaveLength(3);
+    expect(extracted.map(ticket => ticket.episode)).toEqual(expect.arrayContaining(["active", "resolved", "waiting"]));
   });
 
   it("conserve le plan Elite d’un export enrichi", () => {
