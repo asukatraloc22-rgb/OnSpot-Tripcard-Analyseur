@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OnSpot Audit Assistant",
-  "version": "2.0.3",
-  "description": "Exporte une TripCard OnSpot et ses vouchers au format structuré pour TripCard ELITE.",
+  "version": "2.1.0",
+  "description": "Exporte une TripCard OnSpot, ses vouchers et les tickets visibles selon les règles Elite pour TripCard ELITE.",
   "permissions": [
     "activeTab",
     "scripting",

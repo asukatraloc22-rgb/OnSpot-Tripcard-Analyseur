@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onspot-travel.example/schemas/dossier-vivant-3.0.0.json",
+  "title": "OnSpot TripCard Living Dossier",
+  "description": "Contrat d'échange entre OnSpot Audit Assistant et Trip Card Elite.",
+  "type": "object",
+  "required": ["schemaVersion", "source", "collection", "trip", "tickets"],
+  "properties": {
+    "schemaVersion": { "const": "3.0.0" },
+    "source": { "type": "string", "const": "onspot-audit-assistant" },
+    "collection": { "$ref": "#/$defs/collection" },
+    "trip": { "$ref": "#/$defs/trip" },
+    "tickets": { "type": "array", "items": { "$ref": "#/$defs/ticket" } },
+    "analyses": { "$ref": "#/$defs/analyses" },
+    "operatorNotes": { "type": "array", "items": { "$ref": "#/$defs/operatorNote" } },
+    "resolutionRecords": { "type": "array", "items": { "$ref": "#/$defs/resolutionRecord" } }
+  },
+  "$defs": {
+    "collection": {
+      "type": "object",
+      "required": ["capturedAt", "scope", "collectionStatus"],
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "scope": { "enum": ["trip_only", "trip_and_active_tickets", "current_ticket", "selected_tickets", "all_trip_tickets", "section_tickets", "enrichment"] },
+        "pageUrl": { "type": "string" },
+        "collectionStatus": { "enum": ["complete", "partial", "failed"] },
+        "filtersObserved": { "type": "array", "items": { "type": "object" } },
+        "pagesVisited": { "type": "integer", "minimum": 0 },
+        "ticketsFound": { "type": "integer", "minimum": 0 },
+        "ticketsCaptured": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "trip": {
+      "type": "object",
+      "required": ["cardNumber", "travelers", "itinerary", "vouchers", "documents"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "cardNumber": { "type": ["string", "number"] },
+        "package": { "type": ["string", "null"] },
+        "travelers": { "type": "array", "items": { "type": "object" } },
+        "agency": { "type": "object" },
+        "dates": { "type": "object" },
+        "destinations": { "type": "array", "items": { "type": "string" } },
+        "itinerary": { "type": "array", "items": { "$ref": "#/$defs/itineraryItem" } },
+        "vouchers": { "type": "array", "items": { "$ref": "#/$defs/document" } },
+        "documents": { "type": "array", "items": { "$ref": "#/$defs/document" } }
+      },
+      "additionalProperties": true
+    },
+    "itineraryItem": {
+      "type": "object",
+      "required": ["id", "type", "title"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "enum": ["flight", "hotel", "transfer", "activity", "train", "car-rental", "ferry", "other"] },
+        "title": { "type": "string" },
+        "location": { "type": ["string", "null"] },
+        "date": { "type": ["string", "null"] },
+        "time": { "type": ["string", "null"] },
+        "arrivalDate": { "type": ["string", "null"] },
+        "arrivalTime": { "type": ["string", "null"] },
+        "sourceRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "ticket": {
+      "type": "object",
+      "required": ["id", "ticketNumber", "current", "classification", "messages", "events", "statusTransitions", "reminders", "attachments", "sourceRefs"],
+      "properties": {
+        "id": { "type": "string" },
+        "ticketNumber": { "type": ["string", "number"] },
+        "current": { "$ref": "#/$defs/ticketCurrent" },
+        "classification": { "$ref": "#/$defs/classification" },
+        "tripRef": { "type": ["string", "number", "null"] },
+        "travelers": { "type": "array", "items": { "type": "object" } },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/message" } },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+        "statusTransitions": { "type": "array", "items": { "$ref": "#/$defs/statusTransition" } },
+        "reminders": { "type": "array", "items": { "$ref": "#/$defs/reminder" } },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/document" } },
+        "linkedTickets": { "type": "array", "items": { "type": "string" } },
+        "sourceRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "ticketCurrent": {
+      "type": "object",
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "priority": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "subject": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "assignees": { "type": "array", "items": { "type": "object" } },
+        "lastResponseAt": { "type": ["string", "null"] },
+        "lastResponseFrom": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "classification": {
+      "type": "object",
+      "properties": {
+        "type": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "subject": { "type": ["string", "null"] },
+        "intents": { "type": "array", "items": { "type": "string" } },
+        "rootCause": { "type": ["string", "null"] },
+        "resolution": { "type": ["string", "null"] },
+        "facetsNeedReview": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "message": {
+      "type": "object",
+      "required": ["id", "text"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "author": { "type": "object" },
+        "createdAt": { "type": ["string", "null"] },
+        "visibility": { "enum": ["customer", "internal", "system", "unknown"] },
+        "source": { "type": ["string", "null"] },
+        "attachmentRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "event": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "enum": ["message", "assignment", "status", "priority", "reminder", "attachment", "escalation", "system", "unknown"] },
+        "createdAt": { "type": ["string", "null"] },
+        "actor": { "type": "object" },
+        "summary": { "type": "string" },
+        "sourceRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "statusTransition": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": ["string", "null"] },
+        "to": { "type": "string" },
+        "at": { "type": ["string", "null"] },
+        "actor": { "type": "object" },
+        "reasonRef": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "reminder": {
+      "type": "object",
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": ["string", "null"] },
+        "status": { "enum": ["active", "completed", "cancelled", "overdue", "unknown"] },
+        "dueAt": { "type": ["string", "null"] },
+        "timezone": { "type": ["string", "null"] },
+        "completedAt": { "type": ["string", "null"] },
+        "sourceRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "document": {
+      "type": "object",
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "url": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "extractionStatus": { "enum": ["ok", "error", "not_attempted", "unknown"] },
+        "text": { "type": ["string", "null"] },
+        "excerpt": { "type": ["string", "null"] },
+        "sourceRefs": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "analyses": {
+      "type": "object",
+      "properties": {
+        "preTrip": { "type": ["object", "null"] },
+        "liveOperations": { "type": "array", "items": { "type": "object" } },
+        "postTrip": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "operatorNote": {
+      "type": "object",
+      "required": ["id", "text", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "author": { "type": ["string", "null"] },
+        "scope": { "enum": ["trip", "ticket", "event", "action"] },
+        "targetRef": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "resolutionRecord": {
+      "type": "object",
+      "required": ["id", "state", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "targetRef": { "type": "string" },
+        "state": { "enum": ["open", "in_progress", "waiting", "resolved", "reopened", "not_applicable"] },
+        "whatIsDone": { "type": "array", "items": { "type": "string" } },
+        "whatRemains": { "type": "array", "items": { "type": "string" } },
+        "nextActions": { "type": "array", "items": { "type": "object" } },
+        "proofRefs": { "type": "array", "items": { "type": "string" } },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
