@@ -43,12 +43,14 @@ import {
   type TripStep,
 } from "@/lib/audit";
 import { ticketStats, type Ticket } from "@/lib/tickets";
+import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 
 const markUrl = "/onspot-favicon.svg";
 type Tab = "overview" | "checks" | "itinerary" | "documents" | "actions" | "tickets" | "timeline";
 type Workspace = "audit" | "recent" | "rules";
 type RecentStore = { savedAt: string; report: AuditReport };
 type ChecklistFilter = "all" | "remaining" | "completed";
+type StepFilter = "Tout" | "Vol" | "Activité" | "Hôtel" | "Ferry" | "Train" | "Restaurant" | "Location voiture" | "Transfert";
 type ChecklistProgress = Record<string, boolean>;
 
 const statusLabel = (status: AuditStatus) =>
@@ -130,12 +132,50 @@ function StatusPill({ status }: { status: AuditStatus }) {
     </span>
   );
 }
+function stepEmoji(type: string) {
+  if (type === "Vol") return "✈️";
+  if (type === "Activité" || type === "Expérience") return "🎟️";
+  if (type === "Hôtel") return "🏨";
+  if (type === "Ferry") return "⛴️";
+  if (type === "Train") return "🚆";
+  if (type === "Restaurant") return "🍽️";
+  if (type === "Location voiture") return "🚗";
+  if (type === "Transfert") return "🚐";
+  return "📍";
+}
 function StepIcon({ type }: { type: string }) {
   if (type === "Vol") return <Plane size={17} />;
   if (type === "Hôtel") return <Archive size={17} />;
   if (["Transfert", "Train", "Ferry", "Location voiture"].includes(type))
     return <ArrowDownToLine size={17} />;
   return <MapPin size={17} />;
+}
+
+function Ai360Panel({ report }: { report: AuditReport }) {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("tripcard:gemini-api-key") ?? "");
+  const [model, setModel] = useState(() => localStorage.getItem("tripcard:gemini-model") ?? "gemini-flash-latest");
+  const [result, setResult] = useState<Ai360Result | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [inputChars, setInputChars] = useState(0);
+  const run = async () => {
+    setBusy(true); setError("");
+    try {
+      localStorage.setItem("tripcard:gemini-api-key", apiKey.trim());
+      localStorage.setItem("tripcard:gemini-model", model.trim());
+      const response = await runAi360Analysis(report, { apiKey, model });
+      setResult(response.result); setInputChars(response.estimatedInputChars);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Analyse IA impossible."); }
+    finally { setBusy(false); }
+  };
+  return <section className="ai360-panel">
+    <div className="panel-heading"><div><p className="eyebrow">Copilote à la demande · preuves compactes</p><h2>Analyse IA 360°</h2></div><Sparkles size={22} /></div>
+    <p className="checks-intro">Les contrôles locaux passent en premier. L’IA n’est appelée que lorsque vous le demandez et reçoit un paquet condensé, pas tous les vouchers bruts.</p>
+    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé Gemini locale" aria-label="Clé Gemini" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="gemini-flash-latest" aria-label="Modèle Gemini" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
+    {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
+    {error ? <div className="ai360-error">{error}</div> : null}
+    {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{result.newInconsistencies.length ? <div><h3>Nouvelles incohérences</h3>{result.newInconsistencies.map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{result.actions.map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}
+  </section>;
 }
 
 function IssueCard({
@@ -389,7 +429,8 @@ function StepRow({
   return (
     <div className={isFlight ? "step-row step-row-flight" : "step-row"}>
       <div className="step-rail">
-        <div className="step-icon">
+        <div className="step-icon" title={step.type}>
+          <span className="step-emoji" aria-hidden="true">{stepEmoji(step.type)}</span>
           <StepIcon type={step.type} />
         </div>
         <div className="step-line" />
@@ -920,6 +961,7 @@ export default function Home() {
     return requestedFlight && report ? report.flightDetails.find(flight => flight.flightId === requestedFlight) ?? null : null;
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [stepFilter, setStepFilter] = useState<StepFilter>("Tout");
   const inputRef = useRef<HTMLInputElement>(null);
   const recentReports = useMemo<RecentStore[]>(() => {
     try {
@@ -1033,12 +1075,12 @@ export default function Home() {
   };
   const filteredSteps = useMemo(
     () =>
-      report?.steps.filter(step =>
-        `${step.title} ${step.location} ${step.type}`
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())
-      ) ?? [],
-    [report, searchTerm]
+      report?.steps.filter(step => {
+        const matchesType = stepFilter === "Tout" || step.type === stepFilter || (stepFilter === "Activité" && step.type === "Expérience");
+        const matchesSearch = `${step.title} ${step.location} ${step.type}`.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchesType && matchesSearch;
+      }) ?? [],
+    [report, searchTerm, stepFilter]
   );
   const unresolved =
     report?.issues.filter(issue => !resolved.includes(issue.id)) ?? [];
@@ -1314,7 +1356,7 @@ export default function Home() {
                 {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} /> : null}
                 {tab === "timeline" ? <TicketTimeline tickets={report.tickets} /> : null}
                 {tab === "overview" ? (
-                  <div className="overview-stack">
+                    <div className="overview-stack">
                     <div className="section-intro">
                       <div>
                         <p className="eyebrow">Lecture opérationnelle</p>
@@ -1326,6 +1368,7 @@ export default function Home() {
                       </div>
                       <span className="mono">MOTEUR LOCAL · RÈGLES V3</span>
                     </div>
+                    <Ai360Panel report={report} />
                     <div className="domain-grid">
                       {report.domains.map(domain => (
                         <button
@@ -1596,6 +1639,13 @@ export default function Home() {
                           placeholder="Filtrer les étapes"
                         />
                       </div>
+                    </div>
+                    <div className="step-filters" role="toolbar" aria-label="Filtrer par catégorie">
+                      {(["Tout", "Vol", "Activité", "Hôtel", "Ferry", "Train", "Restaurant", "Location voiture", "Transfert"] as StepFilter[]).map(filter => (
+                        <button key={filter} className={stepFilter === filter ? "step-filter active" : "step-filter"} onClick={() => setStepFilter(filter)} aria-pressed={stepFilter === filter}>
+                          <span aria-hidden="true">{stepEmoji(filter)}</span>{filter}
+                        </button>
+                      ))}
                     </div>
                     <div className="timeline">
                       {filteredSteps.length ? (
