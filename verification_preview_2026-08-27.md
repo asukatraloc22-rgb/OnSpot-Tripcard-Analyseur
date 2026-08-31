@@ -63,3 +63,7 @@ L’onglet Tickets affiche 1 ticket capturé, 1 actif/en attente, 1 urgent, 1 en
 ## Vérification Timeline
 
 L’onglet Timeline affiche 4 événements dans l’ordre : rappel H-24 complété, passage de l’attente Back Office à Résolu, réouverture en attente agence, puis message de l’agence. La chronologie ramifiée est lisible et montre correctement qu’une résolution suivie d’un nouvel événement doit être traitée comme une réouverture.
+
+## Vérification du 31 août 2026 — IA et itinéraire
+
+Le preview `on-spot-tripcard-ticket-preview-g19tyhbvr.vercel.app` charge correctement avec `?demo=1`. La Synthèse affiche le panneau « Analyse IA 360° » avec clé Gemini locale, modèle configurable et bouton manuel. L’onglet Itinéraire affiche les filtres emoji `Tout`, `Vol`, `Activité`, `Hôtel`, `Ferry`, `Train`, `Restaurant`, `Location voiture` et `Transfert`. Après clic sur `✈️ Vol`, seules les deux étapes aériennes sont conservées. Aucun appel IA n’est déclenché sans action explicite de l’agent.
