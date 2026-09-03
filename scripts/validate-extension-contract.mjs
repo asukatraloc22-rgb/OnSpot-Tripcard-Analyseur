@@ -13,7 +13,7 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
 assert(manifest.manifest_version === 3, "Le manifeste doit rester en Manifest V3.");
-assert(manifest.version === "2.1.0", "La version du manifeste doit être 2.1.0.");
+assert(manifest.version === "2.2.0", "La version du manifeste doit être 2.2.0.");
 for (const scope of requiredScopes) assert(popup.includes(scope), `Le périmètre ${scope} n’est pas présent dans popup.js.`);
 for (const key of requiredEliteKeys) assert(popup.includes(key), `Le champ Elite ${key} n’est pas présent dans popup.js.`);
 assert(popup.includes("visibleOnly: true"), "Le paquet doit déclarer que la collecte est limitée aux éléments visibles.");

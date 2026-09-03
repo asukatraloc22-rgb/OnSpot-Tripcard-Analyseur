@@ -305,6 +305,75 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       }
       return tickets;
     }
+
+    function getListPaginationLinks() {
+      const candidates = Array.from(document.querySelectorAll('a[href], button, [role="button"]'));
+      return candidates.filter((element) => {
+        const text = (element.textContent || '').trim();
+        const aria = (element.getAttribute('aria-label') || '').trim();
+        const title = (element.getAttribute('title') || '').trim();
+        const candidateText = `${text} ${aria} ${title}`.toLowerCase();
+        return /^(suivant|next|older|plus|page\s*\d+|\d+\s*\/\s*\d+|»|›)$/i.test(text) || /suivant|next|page\s*\d+|pagination|page suivante|page précédente|older|next page/i.test(candidateText);
+      });
+    }
+
+    async function walkVisibleTicketPages(maxPages = 8) {
+      const initialPage = window.location.href;
+      const seenPages = new Set([initialPage]);
+      const allTickets = [];
+      let currentURL = initialPage;
+      let currentPageNum = 0;
+      let lastTicketCount = 0;
+
+      while (currentPageNum < maxPages) {
+        currentPageNum += 1;
+        const pageTickets = extractVisibleTicketCards();
+        for (const ticket of pageTickets) {
+          const exists = allTickets.some((entry) => entry.id === ticket.id || (entry.ticketNumber && ticket.ticketNumber && entry.ticketNumber === ticket.ticketNumber));
+          if (!exists) allTickets.push(ticket);
+        }
+
+        const candidates = getListPaginationLinks();
+        const nextLink = candidates.find((element) => {
+          const text = (element.textContent || '').trim();
+          const aria = (element.getAttribute('aria-label') || '').trim();
+          const title = (element.getAttribute('title') || '').trim();
+          const candidateText = `${text} ${aria} ${title}`.toLowerCase();
+          return /suivant|next|older|plus|page suivante/i.test(candidateText) || /^»|^›|^>$/.test(text);
+        });
+
+        if (!nextLink) break;
+
+        const href = nextLink.href || nextLink.getAttribute('data-href') || nextLink.getAttribute('data-url');
+        if (!href) {
+          try { nextLink.click(); } catch (e) {}
+          await sleep(350);
+          const newURL = window.location.href;
+          if (seenPages.has(newURL)) break;
+          seenPages.add(newURL);
+          currentURL = newURL;
+          lastTicketCount = allTickets.length;
+          continue;
+        }
+
+        const normalizedUrl = String(href).startsWith('http') ? href : new URL(href, window.location.href).href;
+        if (seenPages.has(normalizedUrl)) break;
+        seenPages.add(normalizedUrl);
+
+        try {
+          window.location.href = normalizedUrl;
+        } catch (e) {
+          break;
+        }
+
+        await sleep(500);
+        if (window.location.href === currentURL) break;
+        currentURL = window.location.href;
+        lastTicketCount = allTickets.length;
+      }
+
+      return allTickets;
+    }
     const isTicketPage = /\/tickets?\//i.test(window.location.pathname);
     const ticketScope = ['current_ticket', 'selected_tickets', 'trip_and_active_tickets', 'all_trip_tickets', 'section_tickets'].includes(scope) ? scope : null;
     let tickets = [];
@@ -323,16 +392,20 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       const current = isTicketPage ? extractCurrentTicket() : null;
       const ticketSectionRevealed = isTicketPage || await revealTicketsSection();
       const visible = extractVisibleTicketCards();
+      const paginatedTickets = !isTicketPage && (scope === 'all_trip_tickets' || scope === 'selected_tickets' || scope === 'trip_and_active_tickets') ? await walkVisibleTicketPages() : [];
+      const mergedVisible = paginatedTickets.length ? paginatedTickets : visible;
+
       if (scope === 'current_ticket') tickets = current ? [current] : (visible[0] ? [visible[0]] : []);
       else if (scope === 'selected_tickets') {
-        const checkedCount = document.querySelectorAll('[aria-selected="true"], input[type="checkbox"]:checked').length;
-        const selected = visible.filter((_, index) => checkedCount === 0 || index < checkedCount);
+        const checked = document.querySelectorAll('[aria-selected="true"], input[type="checkbox"]:checked');
+        const checkedCount = checked.length;
+        const selected = mergedVisible.filter((_, index) => checkedCount === 0 || index < checkedCount);
         tickets = selected.length ? selected : (current ? [current] : []);
-      } else if (scope === 'trip_and_active_tickets') tickets = (visible.length ? visible : (current ? [current] : [])).filter(ticketIsActive);
-      else tickets = visible.length ? visible : (current ? [current] : []);
+      } else if (scope === 'trip_and_active_tickets') tickets = (mergedVisible.length ? mergedVisible : (current ? [current] : [])).filter(ticketIsActive);
+      else tickets = mergedVisible.length ? mergedVisible : (current ? [current] : []);
       if (!tickets.length) collectionWarning = 'Aucun ticket exploitable n’a été trouvé dans la page courante pour ce périmètre.';
       else if (!ticketSectionRevealed && !isTicketPage) collectionWarning = 'La section Tickets n’a pas pu être ouverte ; seuls les éléments déjà visibles ont été conservés.';
-      else if ((scope === 'all_trip_tickets' || scope === 'trip_and_active_tickets') && !isTicketPage) collectionWarning = 'Seuls les tickets visibles dans la section courante sont capturés ; aucun ticket caché, paginé ou non ouvert n’est deviné.';
+      else if ((scope === 'all_trip_tickets' || scope === 'trip_and_active_tickets') && !isTicketPage) collectionWarning = 'Les tickets visibles et les pages de pagination détectées ont été capturés ; les tickets non ouverts ou non chargés dans le DOM ne sont pas devinés.';
     }
     const ticket = tickets[0] || null;
 
