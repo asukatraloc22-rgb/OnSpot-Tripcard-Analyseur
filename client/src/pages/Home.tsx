@@ -536,17 +536,18 @@ function FlightDetailDialog({
   );
 }
 
-const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À qualifier" }[episode]);
+const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À confirmer" }[episode]);
 const ticketEpisodeStatus = (episode: Ticket["episode"]): AuditStatus => episode === "resolved" ? "ok" : episode === "reopened" ? "critical" : episode === "unknown" ? "pending" : "warning";
 
 function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }) {
   const status = ticketEpisodeStatus(ticket.episode);
+  const formattedSubject = ticket.current.subject || ticket.classification.subject || "Objet non exporté";
   return (
     <article className="ticket-card">
       <div className="ticket-card-top">
         <div>
           <span className="eyebrow">Ticket #{ticket.ticketNumber} · {ticket.current.category || "Sans catégorie"}</span>
-          <h3>{ticket.current.subject || ticket.classification.subject || "Ticket à qualifier"}</h3>
+          <h3>{formattedSubject}</h3>
         </div>
         <StatusPill status={status} />
       </div>
