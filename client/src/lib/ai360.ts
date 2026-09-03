@@ -1,6 +1,10 @@
 import type { AuditReport } from "./audit";
+import { buildTripNarrative, explainTicket, type TicketExplanation, type TripNarrative } from "./explanations";
 
 export type Ai360Result = {
+  tripNarrative: TripNarrative;
+  ticketExplanations: TicketExplanation[];
+  agencyReport: { subject: string; body: string };
   situation: string;
   verdict: "stable" | "attention" | "bloquant";
   newInconsistencies: Array<{ title: string; severity: "info" | "warning" | "blocking"; evidence: string; whyItMatters: string }>;
@@ -17,9 +21,12 @@ const clamp = (value: string, max: number) => value.length > max ? `${value.slic
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
 export function buildAiEvidencePack(report: AuditReport) {
+  const localExplanations = report.tickets.map((ticket, index) => explainTicket(ticket, report, index));
+  const localNarrative = buildTripNarrative(report, localExplanations);
   return {
     dossier: {
       reference: report.reference,
+      localNarrative: { overview: localNarrative.overview, composition: localNarrative.composition, openPoints: localNarrative.openPoints.slice(0, 10), resolvedPoints: localNarrative.resolvedPoints.slice(0, 10), dayReads: localNarrative.dayReads.slice(0, 20) },
       destination: report.destination,
       startDate: report.startDate,
       endDate: report.endDate,
@@ -28,7 +35,7 @@ export function buildAiEvidencePack(report: AuditReport) {
     },
     itinerary: report.steps.slice(0, 30).map(step => ({ id: step.id, type: step.type, title: clamp(step.title, 160), location: clamp(step.location, 180), date: step.date, time: step.time })),
     checks: report.checks.filter(check => check.status !== "ok").slice(0, 25).map(check => ({ domain: check.domain, label: check.label, status: check.status, finding: clamp(check.finding, 320), evidence: clamp(check.evidence, 320), action: clamp(check.action ?? "", 320) })),
-    tickets: report.tickets.slice(0, 30).map(ticket => ({
+    tickets: report.tickets.slice(0, 30).map((ticket, ticketIndex) => ({
       id: ticket.id,
       number: ticket.ticketNumber,
       status: ticket.current.status,
@@ -36,6 +43,8 @@ export function buildAiEvidencePack(report: AuditReport) {
       category: ticket.current.category,
       subject: clamp(ticket.current.subject ?? "", 180),
       episode: ticket.episode,
+      classification: ticket.classification,
+      localExplanation: localExplanations[ticketIndex],
       whatRemains: ticket.whatRemains.slice(0, 6).map(item => clamp(item, 280)),
       messages: ticket.messages.slice(-4).map(message => ({ at: message.createdAt, author: message.author, text: clamp(message.text, 900) })),
       events: [...ticket.events, ...ticket.statusTransitions].slice(-8).map(event => { const item = event as { createdAt?: string; at?: string; kind?: string; summary?: string; from?: string; to?: string; actor?: string }; return { at: item.createdAt ?? item.at, kind: item.kind ?? "status", summary: clamp(item.summary ?? `${item.from ?? ""} → ${item.to ?? ""}`, 260), actor: item.actor }; }),
@@ -53,6 +62,9 @@ export function buildAiEvidencePack(report: AuditReport) {
 const responseSchema = {
   type: "OBJECT",
   properties: {
+    tripNarrative: { type: "OBJECT", properties: { headline: { type: "STRING" }, overview: { type: "STRING" }, composition: { type: "STRING" }, particularities: { type: "ARRAY", items: { type: "STRING" } }, operationalState: { type: "STRING" }, openPoints: { type: "ARRAY", items: { type: "STRING" } }, resolvedPoints: { type: "ARRAY", items: { type: "STRING" } }, dayReads: { type: "ARRAY", items: { type: "OBJECT", properties: { dayIndex: { type: "INTEGER" }, date: { type: "STRING" }, summary: { type: "STRING" }, steps: { type: "ARRAY", items: { type: "STRING" } }, attention: { type: "ARRAY", items: { type: "STRING" } } }, required: ["dayIndex", "date", "summary", "steps", "attention"] } } }, required: ["headline", "overview", "composition", "particularities", "operationalState", "openPoints", "resolvedPoints", "dayReads"] },
+    ticketExplanations: { type: "ARRAY", items: { type: "OBJECT", properties: { ticketId: { type: "STRING" }, oneLine: { type: "STRING" }, subject: { type: "STRING" }, tripElement: { type: "STRING" }, initialSituation: { type: "STRING" }, currentSituation: { type: "STRING" }, rootCause: { type: "STRING" }, impact: { type: "STRING" }, impactLabel: { type: "STRING" }, actionsDone: { type: "ARRAY", items: { type: "STRING" } }, remaining: { type: "ARRAY", items: { type: "STRING" } }, missingEvidence: { type: "ARRAY", items: { type: "STRING" } } }, required: ["ticketId", "oneLine", "subject", "tripElement", "initialSituation", "currentSituation", "rootCause", "impact", "impactLabel", "actionsDone", "remaining", "missingEvidence"] } },
+    agencyReport: { type: "OBJECT", properties: { subject: { type: "STRING" }, body: { type: "STRING" } }, required: ["subject", "body"] },
     situation: { type: "STRING" },
     verdict: { type: "STRING", enum: ["stable", "attention", "bloquant"] },
     newInconsistencies: { type: "ARRAY", items: { type: "OBJECT", properties: { title: { type: "STRING" }, severity: { type: "STRING", enum: ["info", "warning", "blocking"] }, evidence: { type: "STRING" }, whyItMatters: { type: "STRING" } }, required: ["title", "severity", "evidence", "whyItMatters"] } },
@@ -62,7 +74,7 @@ const responseSchema = {
     confidence: { type: "NUMBER" },
     limitations: { type: "ARRAY", items: { type: "STRING" } },
   },
-  required: ["situation", "verdict", "newInconsistencies", "actions", "timeline", "responsibilities", "confidence", "limitations"],
+  required: ["tripNarrative", "ticketExplanations", "agencyReport", "situation", "verdict", "newInconsistencies", "actions", "timeline", "responsibilities", "confidence", "limitations"],
 };
 
 function parseJson(textValue: string): Ai360Result {
@@ -75,7 +87,7 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
   if (!apiKey) throw new Error("Clé Gemini absente. Ajoutez-la dans les réglages IA locaux.");
   const model = options.model?.trim() || "gemini-flash-latest";
   const evidence = JSON.stringify(buildAiEvidencePack(report));
-  const prompt = `Analyse ce dossier de voyage et ses tickets comme un agent Elite senior. Ne répète pas les contrôles locaux déjà conformes. Cherche uniquement les incohérences nouvelles ou insuffisamment prouvées, les dépendances entre actions, les responsabilités et les échéances. Chaque action doit être immédiatement exécutable et préciser le destinataire ou le message à envoyer si pertinent. Ne transforme jamais une mention en preuve. Si une information manque, indique-le explicitement. Retourne uniquement le JSON conforme au schéma.\n\nPREUVES COMPACTES:\n${evidence}`;
+  const prompt = `Analyse ce dossier de voyage et ses tickets comme un agent Elite senior. Commence par expliquer le voyage en langage naturel : destination, dates, voyageurs, composition, particularités et situation opérationnelle. Pour chaque ticket, explique obligatoirement son objet, l’élément du voyage concerné, la situation initiale, la situation actuelle, la cause prouvée ou inconnue, l’impact client, les actions déjà réalisées, ce qui reste à faire et la prochaine action concrète. Rédige aussi un compte rendu professionnel partageable avec l’agence. Ne répète pas les contrôles locaux déjà conformes. Cherche uniquement les incohérences nouvelles ou insuffisamment prouvées, les dépendances entre actions, les responsabilités et les échéances. Chaque action doit être immédiatement exécutable et préciser le destinataire ou le message à envoyer si pertinent. Ne transforme jamais une mention en preuve. Si une information manque, indique-le explicitement. Retourne uniquement le JSON conforme au schéma.\n\nPREUVES COMPACTES:\n${evidence}`;
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

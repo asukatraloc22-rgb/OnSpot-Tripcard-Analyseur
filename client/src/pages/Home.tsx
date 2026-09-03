@@ -44,6 +44,7 @@ import {
 } from "@/lib/audit";
 import { ticketStats, type Ticket } from "@/lib/tickets";
 import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
+import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 
 const markUrl = "/onspot-favicon.svg";
 type Tab = "overview" | "checks" | "itinerary" | "documents" | "actions" | "tickets" | "timeline";
@@ -149,6 +150,26 @@ function StepIcon({ type }: { type: string }) {
   if (["Transfert", "Train", "Ferry", "Location voiture"].includes(type))
     return <ArrowDownToLine size={17} />;
   return <MapPin size={17} />;
+}
+
+function TripUnderstandingPanel({ narrative }: { narrative: ReturnType<typeof buildTripNarrative> }) {
+  const copyAgencyReport = async () => {
+    await navigator.clipboard.writeText(narrative.agencyReport.body);
+    toast.success("Compte rendu agence copié", { description: "Le texte est prêt à être adapté et envoyé." });
+  };
+  return <section className="trip-understanding-panel">
+    <div className="panel-heading"><div><p className="eyebrow">Lecture immédiate · dossier vivant</p><h2>Ce voyage concerne…</h2></div><span className="mono">SYNTHÈSE LOCALE</span></div>
+    <p className="trip-understanding-lead">{narrative.overview}</p>
+    <div className="trip-understanding-grid">
+      <div><span className="fact-label">Composition du séjour</span><p>{narrative.composition}</p></div>
+      <div><span className="fact-label">Situation opérationnelle</span><p>{narrative.operationalState}</p></div>
+    </div>
+    <div className="trip-understanding-columns">
+      <div><h3>Particularités à garder en tête</h3>{narrative.particularities.map(item => <p className="understanding-line" key={item}>{item}</p>)}</div>
+      <div><h3>Ce qui reste ouvert</h3>{narrative.openPoints.length ? narrative.openPoints.slice(0, 6).map(item => <p className="understanding-line attention" key={item}>{item}</p>) : <p className="understanding-line">Aucun point ouvert détecté.</p>}</div>
+    </div>
+    <details className="agency-report-details"><summary><span>Rapport agence prêt à l’emploi</span><button className="text-button" onClick={event => { event.preventDefault(); void copyAgencyReport(); }}>Copier le rapport</button></summary><div className="agency-report-copy"><b>{narrative.agencyReport.subject}</b><p>{narrative.agencyReport.body}</p></div></details>
+  </section>;
 }
 
 function Ai360Panel({ report }: { report: AuditReport }) {
@@ -585,8 +606,9 @@ function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
   );
 }
 
-function TicketDialog({ ticket, onClose }: { ticket: Ticket; onClose: () => void }) {
-  return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · dossier vivant</p><h2>{ticket.current.subject || ticket.classification.subject || "Ticket"}</h2><p>{ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-detail-grid"><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div><div><span>Catégorie</span><b>{ticket.current.category || "À qualifier"}</b></div><div><span>Assignés</span><b>{ticket.current.assignees.join(" · ") || "Non exporté"}</b></div><div><span>Restant</span><b>{ticket.whatRemains.length}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Prochaine action détectée</span><p>{ticket.nextAction || "Aucune action restante déterminée automatiquement."}</p></div></section><div className="ticket-dialog-section"><p className="eyebrow">Derniers messages</p>{ticket.messages.length ? ticket.messages.slice(-6).map(message => <article className="ticket-message" key={message.id}><div><b>{message.author || "Auteur non exporté"}</b><span>{message.createdAt || "Date non exportée"}</span></div><p>{message.text}</p></article>) : <p className="empty-line">Aucun message structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
+function TicketDialog({ ticket, report, onClose }: { ticket: Ticket; report: AuditReport; onClose: () => void }) {
+  const explanation = explainTicket(ticket, report);
+  return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog ticket-dialog-explained" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · compréhension opérationnelle</p><h2>{explanation.subject}</h2><p>{explanation.tripElement} · {ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-explanation-hero"><strong>{explanation.oneLine}</strong><span>{explanation.impactLabel}</span></div><div className="ticket-detail-grid"><div><span>Situation initiale</span><b>{explanation.initialSituation}</b></div><div><span>Situation actuelle</span><b>{explanation.currentSituation}</b></div><div><span>Cause</span><b>{explanation.rootCause}</b></div><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Ce qu’il faut faire maintenant</span><p>{explanation.nextAction ? `${explanation.nextAction.label} · ${explanation.nextAction.owner} · ${explanation.nextAction.deadline}` : "Aucune action restante détectée."}</p><small>{explanation.nextAction?.why}</small></div></section><div className="ticket-explanation-columns"><div className="ticket-dialog-section"><p className="eyebrow">Actions déjà réalisées</p>{explanation.actionsDone.length ? explanation.actionsDone.map(item => <p className="understanding-line" key={item}>{item}</p>) : <p className="empty-line">Aucune action explicitement documentée.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Reste à faire</p>{explanation.remaining.map(item => <p className="understanding-line attention" key={item}>{item}</p>)}{explanation.missingEvidence.map(item => <small className="missing-evidence" key={item}>Preuve manquante : {item}</small>)}</div></div><div className="ticket-dialog-section"><p className="eyebrow">Chronologie du ticket</p>{explanation.chronology.length ? explanation.chronology.map(item => <article className="ticket-message" key={`${item.at}-${item.label}`}><div><b>{item.label}</b><span>{item.at}</span></div><p>{item.detail}</p></article>) : <p className="empty-line">Aucun événement structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
 }
 
 function ElitePlanPanel({ plan }: { plan: ElitePlan }) {
@@ -1091,6 +1113,7 @@ export default function Home() {
     : 0;
   const openChecks =
     report?.checks.filter(item => item.status !== "ok").length ?? 0;
+  const tripNarrative = useMemo(() => report ? buildTripNarrative(report) : null, [report]);
   const domainChecks =
     report?.checks.filter(
       item =>
@@ -1368,6 +1391,7 @@ export default function Home() {
                       </div>
                       <span className="mono">MOTEUR LOCAL · RÈGLES V3</span>
                     </div>
+                    {tripNarrative ? <TripUnderstandingPanel narrative={tripNarrative} /> : null}
                     <Ai360Panel report={report} />
                     <div className="domain-grid">
                       {report.domains.map(domain => (
@@ -1852,7 +1876,7 @@ export default function Home() {
           </div>
         </div>
       ) : null}
-      {selectedTicket ? <TicketDialog ticket={selectedTicket} onClose={() => setSelectedTicket(null)} /> : null}
+      {selectedTicket && report ? <TicketDialog ticket={selectedTicket} report={report} onClose={() => setSelectedTicket(null)} /> : null}
       {selectedFlight ? (
         <FlightDetailDialog
           flight={selectedFlight}
