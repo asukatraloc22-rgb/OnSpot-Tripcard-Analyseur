@@ -184,6 +184,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       { key: 'trains',       labels: ['Trains', 'Train'] }
     ];
     const vouchersTabDef = { key: 'vouchersTab', labels: ['Vouchers', 'Voucher', 'Documents'] };
+    const ticketsTabDef = { key: 'ticketsTab', labels: ['Tickets', 'Ticket'] };
 
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -245,13 +246,13 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     const ticketStatuses = ['En attente (Agence)', 'En attente (Voyageur)', 'En attente (Back Office)', 'En attente (Front Office)', 'En attente (Rappels)', 'En cours', 'Résolu', 'Nouveau', 'Ouvert', 'Clôturé'];
     const ticketPriorities = ['Urgent', 'Immédiat', 'Haute', 'Normal', 'Basse'];
-    function parseTicketText(rawText, sourceUrl = window.location.href, fallbackId = '') {
+    function parseTicketText(rawText, sourceUrl = window.location.href, fallbackId = '', includeAttachments = true) {
       const fullText = String(rawText || '').trim();
       const pathId = String(sourceUrl).match(/\/tickets\/([^/?#]+)/i)?.[1] || '';
       const number = fullText.match(/Ticket\s*#\s*([\w-]+)/i)?.[1] || pathId || fallbackId || `visible-${Date.now()}`;
       const lines = fullText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-      const currentStatus = ticketStatuses.find(value => lines.some(line => line.toLowerCase() === value.toLowerCase())) || 'Statut non exporté';
-      const currentPriority = ticketPriorities.find(value => lines.some(line => line.toLowerCase() === value.toLowerCase())) || 'Priorité non exportée';
+      const currentStatus = ticketStatuses.find(value => lines.some(line => line.toLowerCase() === value.toLowerCase() || line.toLowerCase().includes(value.toLowerCase()))) || 'Statut non exporté';
+      const currentPriority = ticketPriorities.find(value => lines.some(line => line.toLowerCase() === value.toLowerCase() || line.toLowerCase().includes(value.toLowerCase()))) || 'Priorité non exportée';
       const transitions = [];
       const events = [];
       const reminders = [];
@@ -273,7 +274,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       const conversationStart = fullText.search(/Début de la conversation|Conversation|Messages?/i);
       const replyStart = fullText.search(/Répondre|Reply/i);
       const messageText = conversationStart >= 0 ? fullText.slice(conversationStart, replyStart > conversationStart ? replyStart : fullText.length).trim() : '';
-      const attachmentUrls = [...pdfUrlSet, ...docxUrlSet, ...xlsxUrlSet, ...imageUrlSet];
+      const attachmentUrls = includeAttachments ? [...pdfUrlSet, ...docxUrlSet, ...xlsxUrlSet, ...imageUrlSet] : [];
       const attachments = attachmentUrls.map((url, index) => ({ id: `attachment-${index + 1}`, name: decodeURIComponent(url.split('/').pop()?.split('?')[0] || `Pièce jointe ${index + 1}`), kind: /\.pdf($|\?)/i.test(url) ? 'pdf' : /\.(?:png|jpe?g|webp|gif)($|\?)/i.test(url) ? 'image' : 'file', url, extractionStatus: 'not_attempted' }));
       const tripRef = fullText.match(/Voyage Lié\s+([\w-]+)/i)?.[1] || fullText.match(/Trip\s+([\w-]+)/i)?.[1] || undefined;
       const subject = fullText.match(/Classification[\s\S]{0,500}?Sujet[\s\S]{0,120}?\n([^\n]+)/i)?.[1]?.trim() || fullText.match(/Ticket\s*#\s*[\w-]+\s*\n([^\n]+)/i)?.[1]?.trim() || '';
@@ -300,26 +301,38 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         const key = `${number || ''}|${text.slice(0, 100)}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        tickets.push(parseTicketText(text, href, number || `visible-${tickets.length + 1}`));
+        tickets.push(parseTicketText(text, href, number || `visible-${tickets.length + 1}`, false));
       }
       return tickets;
     }
-    const isTicketPage = /\/tickets\//i.test(window.location.pathname);
+    const isTicketPage = /\/tickets?\//i.test(window.location.pathname);
     const ticketScope = ['current_ticket', 'selected_tickets', 'trip_and_active_tickets', 'all_trip_tickets', 'section_tickets'].includes(scope) ? scope : null;
     let tickets = [];
     let collectionWarning = null;
+    async function revealTicketsSection() {
+      const ticketsTab = findTabElement(ticketsTabDef.labels);
+      if (!ticketsTab) return false;
+      try {
+        ticketsTab.click();
+        await sleep(550);
+        scanFilesOnCurrentDOM();
+        return true;
+      } catch (e) { return false; }
+    }
     if (ticketScope) {
       const current = isTicketPage ? extractCurrentTicket() : null;
+      const ticketSectionRevealed = isTicketPage || await revealTicketsSection();
       const visible = extractVisibleTicketCards();
-      if (scope === 'current_ticket') tickets = current ? [current] : [];
+      if (scope === 'current_ticket') tickets = current ? [current] : (visible[0] ? [visible[0]] : []);
       else if (scope === 'selected_tickets') {
-        const selected = visible.filter((_, index) => Array.from(document.querySelectorAll('[aria-selected="true"], input[type="checkbox"]:checked')).length === 0 || index < Array.from(document.querySelectorAll('[aria-selected="true"], input[type="checkbox"]:checked')).length);
+        const checkedCount = document.querySelectorAll('[aria-selected="true"], input[type="checkbox"]:checked').length;
+        const selected = visible.filter((_, index) => checkedCount === 0 || index < checkedCount);
         tickets = selected.length ? selected : (current ? [current] : []);
       } else if (scope === 'trip_and_active_tickets') tickets = (visible.length ? visible : (current ? [current] : [])).filter(ticketIsActive);
       else tickets = visible.length ? visible : (current ? [current] : []);
       if (!tickets.length) collectionWarning = 'Aucun ticket exploitable n’a été trouvé dans la page courante pour ce périmètre.';
-      else if (!isTicketPage && visible.length === 0) collectionWarning = 'La page ne contient pas de liste de tickets visible ; seul le voyage a été conservé.';
-      else if ((scope === 'all_trip_tickets' || scope === 'trip_and_active_tickets') && !isTicketPage) collectionWarning = 'Seuls les tickets visibles dans la section courante sont capturés ; aucun ticket caché ou page non ouverte n’est deviné.';
+      else if (!ticketSectionRevealed && !isTicketPage) collectionWarning = 'La section Tickets n’a pas pu être ouverte ; seuls les éléments déjà visibles ont été conservés.';
+      else if ((scope === 'all_trip_tickets' || scope === 'trip_and_active_tickets') && !isTicketPage) collectionWarning = 'Seuls les tickets visibles dans la section courante sont capturés ; aucun ticket caché, paginé ou non ouvert n’est deviné.';
     }
     const ticket = tickets[0] || null;
 

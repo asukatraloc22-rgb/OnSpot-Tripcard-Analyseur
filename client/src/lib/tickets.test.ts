@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeTrip } from "./audit";
 import { extractTickets, mergeTickets, normalizeTicket } from "./tickets";
+import { buildTripNarrative, explainTicket } from "./explanations";
 
 describe("living dossier tickets", () => {
   it("identifie un ticket rouvert après une résolution", () => {
@@ -63,5 +64,30 @@ describe("living dossier tickets", () => {
     });
     expect(report.elite.flags[0]?.id).toBe("provider-contact-missing");
     expect(report.elite.summary.blocking).toBe(1);
+  });
+});
+
+
+describe("compréhension opérationnelle", () => {
+  it("produit une lecture exploitable du voyage et du ticket", () => {
+    const report = analyzeTrip({
+      schemaVersion: "3.1.0",
+      reference: "TRIP-EXPLAIN",
+      tripName: "Escapade Lisbonne",
+      destination: "Lisbonne",
+      startDate: "2026-09-14",
+      endDate: "2026-09-23",
+      travelers: ["Alice", "Bob"],
+      services: [{ type: "transfer", title: "Transfert arrivée", location: "LIS", date: "2026-09-14", time: "12:00" }],
+      documents: [],
+      tickets: [{ id: "ticket-explain", ticketNumber: "100600", subject: "Chauffeur arrivée", status: "En attente (Agence)", category: "Transfert", messages: [{ id: "m1", text: "Merci de confirmer le numéro du chauffeur", author: "Patrick" }], statusTransitions: [] }],
+    });
+    const explanation = explainTicket(report.tickets[0], report);
+    const narrative = buildTripNarrative(report, [explanation]);
+    expect(explanation.subject).toContain("Chauffeur");
+    expect(explanation.initialSituation).toContain("confirmer");
+    expect(explanation.remaining.length).toBeGreaterThan(0);
+    expect(narrative.overview).toContain("Lisbonne");
+    expect(narrative.agencyReport.body).toContain("Retour opérationnel");
   });
 });

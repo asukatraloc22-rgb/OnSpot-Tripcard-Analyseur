@@ -43,12 +43,15 @@ import {
   type TripStep,
 } from "@/lib/audit";
 import { ticketStats, type Ticket } from "@/lib/tickets";
+import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
+import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 
 const markUrl = "/onspot-favicon.svg";
 type Tab = "overview" | "checks" | "itinerary" | "documents" | "actions" | "tickets" | "timeline";
 type Workspace = "audit" | "recent" | "rules";
 type RecentStore = { savedAt: string; report: AuditReport };
 type ChecklistFilter = "all" | "remaining" | "completed";
+type StepFilter = "Tout" | "Vol" | "Activité" | "Hôtel" | "Ferry" | "Train" | "Restaurant" | "Location voiture" | "Transfert";
 type ChecklistProgress = Record<string, boolean>;
 
 const statusLabel = (status: AuditStatus) =>
@@ -130,12 +133,70 @@ function StatusPill({ status }: { status: AuditStatus }) {
     </span>
   );
 }
+function stepEmoji(type: string) {
+  if (type === "Vol") return "✈️";
+  if (type === "Activité" || type === "Expérience") return "🎟️";
+  if (type === "Hôtel") return "🏨";
+  if (type === "Ferry") return "⛴️";
+  if (type === "Train") return "🚆";
+  if (type === "Restaurant") return "🍽️";
+  if (type === "Location voiture") return "🚗";
+  if (type === "Transfert") return "🚐";
+  return "📍";
+}
 function StepIcon({ type }: { type: string }) {
   if (type === "Vol") return <Plane size={17} />;
   if (type === "Hôtel") return <Archive size={17} />;
   if (["Transfert", "Train", "Ferry", "Location voiture"].includes(type))
     return <ArrowDownToLine size={17} />;
   return <MapPin size={17} />;
+}
+
+function TripUnderstandingPanel({ narrative }: { narrative: ReturnType<typeof buildTripNarrative> }) {
+  const copyAgencyReport = async () => {
+    await navigator.clipboard.writeText(narrative.agencyReport.body);
+    toast.success("Compte rendu agence copié", { description: "Le texte est prêt à être adapté et envoyé." });
+  };
+  return <section className="trip-understanding-panel">
+    <div className="panel-heading"><div><p className="eyebrow">Lecture immédiate · dossier vivant</p><h2>Ce voyage concerne…</h2></div><span className="mono">SYNTHÈSE LOCALE</span></div>
+    <p className="trip-understanding-lead">{narrative.overview}</p>
+    <div className="trip-understanding-grid">
+      <div><span className="fact-label">Composition du séjour</span><p>{narrative.composition}</p></div>
+      <div><span className="fact-label">Situation opérationnelle</span><p>{narrative.operationalState}</p></div>
+    </div>
+    <div className="trip-understanding-columns">
+      <div><h3>Particularités à garder en tête</h3>{narrative.particularities.map(item => <p className="understanding-line" key={item}>{item}</p>)}</div>
+      <div><h3>Ce qui reste ouvert</h3>{narrative.openPoints.length ? narrative.openPoints.slice(0, 6).map(item => <p className="understanding-line attention" key={item}>{item}</p>) : <p className="understanding-line">Aucun point ouvert détecté.</p>}</div>
+    </div>
+    <details className="agency-report-details"><summary><span>Rapport agence prêt à l’emploi</span><button className="text-button" onClick={event => { event.preventDefault(); void copyAgencyReport(); }}>Copier le rapport</button></summary><div className="agency-report-copy"><b>{narrative.agencyReport.subject}</b><p>{narrative.agencyReport.body}</p></div></details>
+  </section>;
+}
+
+function Ai360Panel({ report }: { report: AuditReport }) {
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("tripcard:gemini-api-key") ?? "");
+  const [model, setModel] = useState(() => localStorage.getItem("tripcard:gemini-model") ?? "gemini-flash-latest");
+  const [result, setResult] = useState<Ai360Result | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [inputChars, setInputChars] = useState(0);
+  const run = async () => {
+    setBusy(true); setError("");
+    try {
+      localStorage.setItem("tripcard:gemini-api-key", apiKey.trim());
+      localStorage.setItem("tripcard:gemini-model", model.trim());
+      const response = await runAi360Analysis(report, { apiKey, model });
+      setResult(response.result); setInputChars(response.estimatedInputChars);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Analyse IA impossible."); }
+    finally { setBusy(false); }
+  };
+  return <section className="ai360-panel">
+    <div className="panel-heading"><div><p className="eyebrow">Copilote à la demande · preuves compactes</p><h2>Analyse IA 360°</h2></div><Sparkles size={22} /></div>
+    <p className="checks-intro">Les contrôles locaux passent en premier. L’IA n’est appelée que lorsque vous le demandez et reçoit un paquet condensé, pas tous les vouchers bruts.</p>
+    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé Gemini locale" aria-label="Clé Gemini" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="gemini-flash-latest" aria-label="Modèle Gemini" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
+    {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
+    {error ? <div className="ai360-error">{error}</div> : null}
+    {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{result.newInconsistencies.length ? <div><h3>Nouvelles incohérences</h3>{result.newInconsistencies.map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{result.actions.map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}
+  </section>;
 }
 
 function IssueCard({
@@ -389,7 +450,8 @@ function StepRow({
   return (
     <div className={isFlight ? "step-row step-row-flight" : "step-row"}>
       <div className="step-rail">
-        <div className="step-icon">
+        <div className="step-icon" title={step.type}>
+          <span className="step-emoji" aria-hidden="true">{stepEmoji(step.type)}</span>
           <StepIcon type={step.type} />
         </div>
         <div className="step-line" />
@@ -544,8 +606,9 @@ function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
   );
 }
 
-function TicketDialog({ ticket, onClose }: { ticket: Ticket; onClose: () => void }) {
-  return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · dossier vivant</p><h2>{ticket.current.subject || ticket.classification.subject || "Ticket"}</h2><p>{ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-detail-grid"><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div><div><span>Catégorie</span><b>{ticket.current.category || "À qualifier"}</b></div><div><span>Assignés</span><b>{ticket.current.assignees.join(" · ") || "Non exporté"}</b></div><div><span>Restant</span><b>{ticket.whatRemains.length}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Prochaine action détectée</span><p>{ticket.nextAction || "Aucune action restante déterminée automatiquement."}</p></div></section><div className="ticket-dialog-section"><p className="eyebrow">Derniers messages</p>{ticket.messages.length ? ticket.messages.slice(-6).map(message => <article className="ticket-message" key={message.id}><div><b>{message.author || "Auteur non exporté"}</b><span>{message.createdAt || "Date non exportée"}</span></div><p>{message.text}</p></article>) : <p className="empty-line">Aucun message structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
+function TicketDialog({ ticket, report, onClose }: { ticket: Ticket; report: AuditReport; onClose: () => void }) {
+  const explanation = explainTicket(ticket, report);
+  return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog ticket-dialog-explained" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · compréhension opérationnelle</p><h2>{explanation.subject}</h2><p>{explanation.tripElement} · {ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-explanation-hero"><strong>{explanation.oneLine}</strong><span>{explanation.impactLabel}</span></div><div className="ticket-detail-grid"><div><span>Situation initiale</span><b>{explanation.initialSituation}</b></div><div><span>Situation actuelle</span><b>{explanation.currentSituation}</b></div><div><span>Cause</span><b>{explanation.rootCause}</b></div><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Ce qu’il faut faire maintenant</span><p>{explanation.nextAction ? `${explanation.nextAction.label} · ${explanation.nextAction.owner} · ${explanation.nextAction.deadline}` : "Aucune action restante détectée."}</p><small>{explanation.nextAction?.why}</small></div></section><div className="ticket-explanation-columns"><div className="ticket-dialog-section"><p className="eyebrow">Actions déjà réalisées</p>{explanation.actionsDone.length ? explanation.actionsDone.map(item => <p className="understanding-line" key={item}>{item}</p>) : <p className="empty-line">Aucune action explicitement documentée.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Reste à faire</p>{explanation.remaining.map(item => <p className="understanding-line attention" key={item}>{item}</p>)}{explanation.missingEvidence.map(item => <small className="missing-evidence" key={item}>Preuve manquante : {item}</small>)}</div></div><div className="ticket-dialog-section"><p className="eyebrow">Chronologie du ticket</p>{explanation.chronology.length ? explanation.chronology.map(item => <article className="ticket-message" key={`${item.at}-${item.label}`}><div><b>{item.label}</b><span>{item.at}</span></div><p>{item.detail}</p></article>) : <p className="empty-line">Aucun événement structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
 }
 
 function ElitePlanPanel({ plan }: { plan: ElitePlan }) {
@@ -920,6 +983,7 @@ export default function Home() {
     return requestedFlight && report ? report.flightDetails.find(flight => flight.flightId === requestedFlight) ?? null : null;
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [stepFilter, setStepFilter] = useState<StepFilter>("Tout");
   const inputRef = useRef<HTMLInputElement>(null);
   const buildCompleteDossierCopy = (nextReport: AuditReport) => ({
     trip: {
@@ -1095,12 +1159,12 @@ export default function Home() {
   };
   const filteredSteps = useMemo(
     () =>
-      report?.steps.filter(step =>
-        `${step.title} ${step.location} ${step.type}`
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())
-      ) ?? [],
-    [report, searchTerm]
+      report?.steps.filter(step => {
+        const matchesType = stepFilter === "Tout" || step.type === stepFilter || (stepFilter === "Activité" && step.type === "Expérience");
+        const matchesSearch = `${step.title} ${step.location} ${step.type}`.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchesType && matchesSearch;
+      }) ?? [],
+    [report, searchTerm, stepFilter]
   );
   const unresolved =
     report?.issues.filter(issue => !resolved.includes(issue.id)) ?? [];
@@ -1111,6 +1175,7 @@ export default function Home() {
     : 0;
   const openChecks =
     report?.checks.filter(item => item.status !== "ok").length ?? 0;
+  const tripNarrative = useMemo(() => report ? buildTripNarrative(report) : null, [report]);
   const domainChecks =
     report?.checks.filter(
       item =>
@@ -1384,7 +1449,7 @@ export default function Home() {
                 {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} /> : null}
                 {tab === "timeline" ? <TicketTimeline tickets={report.tickets} /> : null}
                 {tab === "overview" ? (
-                  <div className="overview-stack">
+                    <div className="overview-stack">
                     <div className="section-intro">
                       <div>
                         <p className="eyebrow">Lecture opérationnelle</p>
@@ -1396,6 +1461,8 @@ export default function Home() {
                       </div>
                       <span className="mono">MOTEUR LOCAL · RÈGLES V3</span>
                     </div>
+                    {tripNarrative ? <TripUnderstandingPanel narrative={tripNarrative} /> : null}
+                    <Ai360Panel report={report} />
                     <div className="domain-grid">
                       {report.domains.map(domain => (
                         <button
@@ -1667,6 +1734,13 @@ export default function Home() {
                         />
                       </div>
                     </div>
+                    <div className="step-filters" role="toolbar" aria-label="Filtrer par catégorie">
+                      {(["Tout", "Vol", "Activité", "Hôtel", "Ferry", "Train", "Restaurant", "Location voiture", "Transfert"] as StepFilter[]).map(filter => (
+                        <button key={filter} className={stepFilter === filter ? "step-filter active" : "step-filter"} onClick={() => setStepFilter(filter)} aria-pressed={stepFilter === filter}>
+                          <span aria-hidden="true">{stepEmoji(filter)}</span>{filter}
+                        </button>
+                      ))}
+                    </div>
                     <div className="timeline">
                       {filteredSteps.length ? (
                         filteredSteps.map(step => (
@@ -1872,7 +1946,7 @@ export default function Home() {
           </div>
         </div>
       ) : null}
-      {selectedTicket ? <TicketDialog ticket={selectedTicket} onClose={() => setSelectedTicket(null)} /> : null}
+      {selectedTicket && report ? <TicketDialog ticket={selectedTicket} report={report} onClose={() => setSelectedTicket(null)} /> : null}
       {selectedFlight ? (
         <FlightDetailDialog
           flight={selectedFlight}
