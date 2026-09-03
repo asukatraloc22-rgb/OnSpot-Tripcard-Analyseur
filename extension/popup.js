@@ -206,6 +206,61 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       return document.querySelector('[role="tab"][aria-selected="true"], [role="tab"].active, [role="tab"].is-active, button.active, button.is-active') || null;
     }
 
+    function getTravelerNameCandidates() {
+      const names = new Set();
+      const text = document.body.innerText || '';
+      const regex = /\b(?:Mr|Mrs|Ms|M\.|Mme|Mlle|Dr)\.?\s*[A-ZÀ-ÿ][a-zà-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][a-zà-ÿ'’-]+){1,3}\b/g;
+      for (const match of text.matchAll(regex)) {
+        const value = match[0].replace(/\s+/g, ' ').trim();
+        if (!value || /^(Mr|Mrs|Ms|M\.|Mme|Mlle|Dr|Voyage|Travel|Ticket|Hotel|Flight|Vol|Itin|Destination|Agence|OnSpot)$/i.test(value)) continue;
+        names.add(value);
+      }
+
+      const genericRegex = /\b[A-ZÀ-ÿ][a-zà-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][a-zà-ÿ'’-]+){1,3}\b/g;
+      for (const match of text.matchAll(genericRegex)) {
+        const value = match[0].replace(/\s+/g, ' ').trim();
+        if (/(Voyage|Travel|Ticket|Hotel|Flight|Vol|Itin|Destination|Agence|OnSpot|Rappel|Note)$/i.test(value)) continue;
+        if (value.split(/\s+/).length >= 2 && value.split(/\s+/).length <= 5) names.add(value);
+      }
+      return Array.from(names);
+    }
+
+    function getTravelerBirthdayHints() {
+      const text = document.body.innerText || '';
+      const hits = [];
+      const birthdayRegex = /(date\s+de\s+naissance|birth\s+date|birthday|date\s+d['’]naissance|date\s+naissance)[^\n]{0,80}(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})/gi;
+      for (const match of text.matchAll(birthdayRegex)) {
+        hits.push((match[0] || '').replace(/\s+/g, ' ').trim());
+      }
+      return hits;
+    }
+
+    function extractTravelerProfileData() {
+      const travelerButtons = Array.from(document.querySelectorAll('button, a, [role="button"], li, [data-traveler-id], [data-passenger-id]'))
+        .filter((element) => {
+          const text = (element.textContent || '').trim();
+          const label = (element.getAttribute('aria-label') || '').trim();
+          return /voyageur|traveler|passager|passenger|participant|guest|personne|guest/i.test(`${text} ${label}`);
+        });
+
+      const travelerNames = getTravelerNameCandidates();
+      const birthdayHints = getTravelerBirthdayHints();
+
+      for (const button of travelerButtons) {
+        try {
+          button.click();
+        } catch (e) {}
+      }
+
+      const afterOpenNames = getTravelerNameCandidates();
+      const allNames = Array.from(new Set([...travelerNames, ...afterOpenNames]));
+      return {
+        travelerNames: allNames,
+        birthdayHints,
+        clickedTravelerButtons: travelerButtons.length,
+      };
+    }
+
     // Détection des fichiers par type — accumulée au fil des clics, jamais réinitialisée
     const pdfUrlSet = new Set();
     const docxUrlSet = new Set();
@@ -239,6 +294,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     // Sert de filet en cas d'onglet non détecté par la suite.
     const initialSnapshot = (document.body.innerText || '').trim();
     const originalTab = activeTabElement();
+    const travelerData = extractTravelerProfileData();
     const ticketMatch = initialSnapshot.match(/\bTickets?\s*\(\s*(\d+)\s*\)/i);
     const ticketsPresence = { detected: Boolean(ticketMatch || /\bTickets?\b/i.test(initialSnapshot)), count: ticketMatch ? Number(ticketMatch[1]) : null, evidence: ticketMatch ? ticketMatch[0] : (/\bTickets?\b/i.test(initialSnapshot) ? 'Onglet Tickets visible sur la page principale.' : 'Aucun onglet Tickets visible dans la capture initiale.') };
     scanFilesOnCurrentDOM();
@@ -460,6 +516,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     resolve({
       itinerary,
       initialSnapshot,
+      travelerData,
       ticketsPresence,
       pdfUrls: Array.from(pdfUrlSet),
       docxUrls: Array.from(docxUrlSet),
@@ -617,14 +674,22 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
   const reference = (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || (allText.match(/Trip\s+(\d{6,})/i) || [])[1] || 'sans-reference';
-  const travelers = Array.from(new Set(Array.from(allText.matchAll(/\b(?:M\.|MR\.|Mme|MM\.)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)\s+([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)/g)).map((match) => `${match[1]} ${match[2]}`)));
+  const travelerNamesFromDOM = Array.isArray(pageData.travelerData?.travelerNames) ? pageData.travelerData.travelerNames : [];
+  const travelerBirthdayHints = Array.isArray(pageData.travelerData?.birthdayHints) ? pageData.travelerData.birthdayHints : [];
+  const travelers = Array.from(new Set([
+    ...travelerNamesFromDOM,
+    ...Array.from(new Set(Array.from(allText.matchAll(/\b(?:M\.|MR\.|Mme|MM\.)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)\s+([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)/g)).map((match) => `${match[1]} ${match[2]}`))),
+  ]));
   const files = [
     ...pdfTexts.map((item) => ({ kind: 'pdf', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.pdf', text: item.text })),
     ...docxTexts.map((item) => ({ kind: 'docx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.docx', text: item.text })),
     ...xlsxTexts.map((item) => ({ kind: 'xlsx', url: item.url, name: item.url.split('/').pop()?.split('?')[0] || 'voucher.xlsx', text: item.text })),
     ...pageData.imageUrls.map((url) => ({ kind: 'image', url, name: url.split('/').pop()?.split('?')[0] || 'image-jointe', text: '' }))
   ].map((file) => ({ ...file, ...classifyDocument(file) }));
-  const profileNotes = Array.from(new Set((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)));
+  const profileNotes = Array.from(new Set([
+    ...((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)),
+    ...travelerBirthdayHints,
+  ]));
   const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
   const capturedTickets = Array.from(new Map((pageData.tickets || (pageData.ticket ? [pageData.ticket] : [])).map(ticket => [ticket.id || ticket.ticketNumber, { ...ticket, attachments: (ticket.attachments || []).map((attachment) => {
     const extracted = [...pdfTexts, ...docxTexts, ...xlsxTexts].find(item => item.url === attachment.url);
