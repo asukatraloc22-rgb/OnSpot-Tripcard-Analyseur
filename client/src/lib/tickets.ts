@@ -289,11 +289,16 @@ export function extractTickets(raw: Record<string, unknown>): Ticket[] {
 }
 
 export function mergeTickets(existing: Ticket[], incoming: Ticket[]): Ticket[] {
-  const byId = new Map(existing.map(ticket => [ticket.id, ticket]));
+  const byId = new Map<string, Ticket>();
+  const index = (ticket: Ticket) => {
+    if (ticket.id) byId.set(`id:${ticket.id}`, ticket);
+    if (ticket.ticketNumber) byId.set(`number:${ticket.ticketNumber}`, ticket);
+  };
+  existing.forEach(index);
   for (const next of incoming) {
-    const previous = byId.get(next.id);
+    const previous = byId.get(`id:${next.id}`) ?? byId.get(`number:${next.ticketNumber}`);
     if (!previous) {
-      byId.set(next.id, next);
+      index(next);
       continue;
     }
     const mergeUnique = <T extends { id?: string }>(left: T[], right: T[]) => {
@@ -302,9 +307,10 @@ export function mergeTickets(existing: Ticket[], incoming: Ticket[]): Ticket[] {
       return Array.from(result.values());
     };
     const merged = normalizeTicket({ ...previous, ...next, current: { ...previous.current, ...next.current }, classification: { ...previous.classification, ...next.classification }, messages: mergeUnique(previous.messages, next.messages), events: mergeUnique(previous.events, next.events), reminders: mergeUnique(previous.reminders, next.reminders), attachments: mergeUnique(previous.attachments, next.attachments), statusTransitions: [...previous.statusTransitions, ...next.statusTransitions] });
-    byId.set(next.id, merged);
+    for (const [alias, value] of byId) if (value === previous) byId.delete(alias);
+    index(merged);
   }
-  return Array.from(byId.values()).sort((a, b) => (b.current.lastResponseAt ?? "").localeCompare(a.current.lastResponseAt ?? ""));
+  return Array.from(new Set(byId.values())).sort((a, b) => (b.current.lastResponseAt ?? "").localeCompare(a.current.lastResponseAt ?? ""));
 }
 
 export function ticketStats(tickets: Ticket[]) {

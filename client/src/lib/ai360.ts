@@ -32,7 +32,7 @@ export class Ai360Error extends Error {
   constructor(kind: Ai360Error["kind"], message: string, attempts: Ai360Error["attempts"] = []) {
     super(message);
     this.name = "Ai360Error";
-      this.kind = kind;
+    this.kind = kind;
     this.attempts = attempts;
   }
 }
@@ -141,8 +141,15 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
         const typedError = error as Ai360Error;
         throw new Ai360Error(typedError.kind, typedError.message, typedError.attempts);
       }
-      attempts.push({ model, message: error instanceof Error ? error.message : "Erreur réseau inconnue" });
-      if (retry >= maxRetries) throw new Ai360Error("network", "La connexion à OpenRouter a échoué.", attempts);
+      const detail = error instanceof Error ? error.message : String(error);
+      attempts.push({ model, message: detail });
+      if (retry >= maxRetries) {
+        throw new Ai360Error(
+          "network",
+          `La connexion à OpenRouter a échoué : ${detail || "le navigateur a bloqué la requête"}. Vérifiez la console réseau et les permissions du navigateur.`,
+          attempts,
+        );
+      }
     }
   }
   throw new Ai360Error("network", "OpenRouter n’a pas pu être contacté.", attempts);

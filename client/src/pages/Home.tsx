@@ -42,7 +42,7 @@ import {
   type FlightDetail,
   type TripStep,
 } from "@/lib/audit";
-import { ticketStats, type Ticket } from "@/lib/tickets";
+import { extractTickets, mergeTickets, ticketStats, type Ticket } from "@/lib/tickets";
 import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 
@@ -539,7 +539,7 @@ function FlightDetailDialog({
 const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À confirmer" }[episode]);
 const ticketEpisodeStatus = (episode: Ticket["episode"]): AuditStatus => episode === "resolved" ? "ok" : episode === "reopened" ? "critical" : episode === "unknown" ? "pending" : "warning";
 
-function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }) {
+function TicketCard({ ticket, onOpen, onCopy }: { ticket: Ticket; onOpen: () => void; onCopy: () => void }) {
   const status = ticketEpisodeStatus(ticket.episode);
   const formattedSubject = ticket.current.subject || ticket.classification.subject || "Objet non exporté";
   return (
@@ -559,13 +559,13 @@ function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }) 
       <p className="ticket-card-summary">{ticket.whatRemains[0] || "Aucune action restante détectée dans l’export."}</p>
       <div className="ticket-card-bottom">
         <span className="mono">{ticket.messages.length} message{ticket.messages.length > 1 ? "s" : ""} · {ticket.attachments.length} pièce{ticket.attachments.length > 1 ? "s" : ""}</span>
-        <button className="text-button" onClick={onOpen}>Ouvrir le ticket <ChevronRight size={14} /></button>
+        <span className="ticket-card-actions"><button className="text-button" onClick={onCopy}><FileJson size={13} />Copier JSON</button><button className="text-button" onClick={onOpen}>Ouvrir le ticket <ChevronRight size={14} /></button></span>
       </div>
     </article>
   );
 }
 
-function TicketsPanel({ tickets, onOpen }: { tickets: Ticket[]; onOpen: (ticket: Ticket) => void }) {
+function TicketsPanel({ tickets, onOpen, onCopyAll }: { tickets: Ticket[]; onOpen: (ticket: Ticket) => void; onCopyAll: () => void }) {
   const [filter, setFilter] = useState<"all" | "active" | "resolved" | "urgent">("all");
   const stats = ticketStats(tickets);
   const visible = tickets.filter(ticket => filter === "all" || filter === "active" && ["new", "active", "waiting", "reopened"].includes(ticket.episode) || filter === "resolved" && ticket.episode === "resolved" || filter === "urgent" && /urgent|immediate|immédiat/i.test(ticket.current.priority || ""));
@@ -576,7 +576,7 @@ function TicketsPanel({ tickets, onOpen }: { tickets: Ticket[]; onOpen: (ticket:
           <p className="eyebrow">Dossier vivant · traitement opérationnel</p>
           <h2>Tickets du voyage</h2>
         </div>
-        <span className="mono">{stats.total} CAPTURÉ{stats.total > 1 ? "S" : ""}</span>
+        <div className="panel-heading-actions"><span className="mono">{stats.total} CAPTURÉ{stats.total > 1 ? "S" : ""}</span><button className="button button-secondary compact" onClick={onCopyAll} disabled={!tickets.length}><FileJson size={14} />Copier les tickets JSON</button></div>
       </div>
       <div className="ticket-summary-grid">
         <button className={filter === "active" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("active")}><b>{stats.active}</b><span>Actifs / en attente</span></button>
@@ -587,7 +587,7 @@ function TicketsPanel({ tickets, onOpen }: { tickets: Ticket[]; onOpen: (ticket:
       <div className="ticket-filter-row">
         {([["all", "Tous"], ["active", "À traiter"], ["urgent", "Urgents"], ["resolved", "Résolus"]] as const).map(([key, label]) => <button key={key} className={filter === key ? "filter-pill active" : "filter-pill"} onClick={() => setFilter(key)}>{label}</button>)}
       </div>
-      {visible.length ? <div className="ticket-list">{visible.map(ticket => <TicketCard key={ticket.id} ticket={ticket} onOpen={() => onOpen(ticket)} />)}</div> : <div className="clear-state"><CheckCircle2 size={22} /><div><b>Aucun ticket dans ce filtre.</b><p>La capture ne contient pas de ticket correspondant à cette sélection.</p></div></div>}
+      {visible.length ? <div className="ticket-list">{visible.map(ticket => <TicketCard key={ticket.id} ticket={ticket} onOpen={() => onOpen(ticket)} onCopy={() => { void navigator.clipboard.writeText(JSON.stringify(ticket, null, 2)); toast.success(`Ticket #${ticket.ticketNumber} copié`); }} />)}</div> : <div className="clear-state"><CheckCircle2 size={22} /><div><b>Aucun ticket dans ce filtre.</b><p>La capture ne contient pas de ticket correspondant à cette sélection.</p></div></div>}
     </div>
   );
 }
@@ -993,6 +993,7 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [stepFilter, setStepFilter] = useState<StepFilter>("Tout");
   const inputRef = useRef<HTMLInputElement>(null);
+  const ticketInputRef = useRef<HTMLInputElement>(null);
   const buildCompleteDossierCopy = (nextReport: AuditReport) => ({
     trip: {
       reference: nextReport.reference,
@@ -1054,6 +1055,14 @@ export default function Home() {
         description: "Le navigateur a bloqué l’accès au presse-papiers. Copiez le JSON manuellement.",
       });
     }
+  };
+  const copyTicketsJson = async () => {
+    if (!report?.tickets.length) {
+      toast.info("Aucun ticket à copier.");
+      return;
+    }
+    await navigator.clipboard.writeText(JSON.stringify(report.tickets, null, 2));
+    toast.success("Tickets copiés", { description: `${report.tickets.length} ticket(s) inclus.` });
   };
   const recentReports = useMemo<RecentStore[]>(() => {
     try {
@@ -1148,6 +1157,26 @@ export default function Home() {
         description: "Autorisez l’accès ou utilisez l’import de fichier JSON.",
       });
     }
+  };
+  const handleTicketFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !report) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(String(reader.result)) as Record<string, unknown>;
+        const incoming = extractTickets(payload);
+        const tickets = mergeTickets(report.tickets, incoming);
+        const next = { ...report, tickets };
+        setReport(next);
+        localStorage.setItem("tripcard:last-report", JSON.stringify(next));
+        toast.success("Tickets ajoutés", { description: `${incoming.length} importé(s), ${tickets.length} présent(s) après dédoublonnage.` });
+      } catch {
+        toast.error("JSON tickets illisible", { description: "Le fichier ne contient pas de tickets exploitables." });
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
   };
   const toggleReview = (id: string) => {
     if (!report) return;
@@ -1298,7 +1327,15 @@ export default function Home() {
               onClick={() => inputRef.current?.click()}
             >
               <Upload size={15} />
-              Importer
+              Importer un voyage
+            </button>
+            <button
+              className="button button-secondary compact"
+              onClick={() => ticketInputRef.current?.click()}
+              disabled={!report}
+            >
+              <MessageSquare size={15} />
+              Ajouter des tickets
             </button>
           </div>
         </header>
@@ -1308,6 +1345,13 @@ export default function Home() {
           accept="application/json,.json"
           hidden
           onChange={handleFile}
+        />
+        <input
+          ref={ticketInputRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={handleTicketFile}
         />
         {workspace === "recent" ? (
           <RecentWorkspace
@@ -1427,13 +1471,7 @@ export default function Home() {
                       setSelectedDomain("Tout");
                     }}
                   >
-                    Contrôles <span>{report.checks.length}</span>
-                  </button>
-                  <button
-                    className={tab === "itinerary" ? "tab active" : "tab"}
-                    onClick={() => setTab("itinerary")}
-                  >
-                    Itinéraire <span>{report.steps.length}</span>
+                    Analyse <span>{report.checks.length}</span>
                   </button>
                   <button
                     className={tab === "tickets" ? "tab active" : "tab"}
@@ -1442,7 +1480,7 @@ export default function Home() {
                     Tickets <span>{report.tickets.length || "·"}</span>
                   </button>
                 </div>
-                {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} /> : null}
+                {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} onCopyAll={() => void copyTicketsJson()} /> : null}
                 {tab === "overview" ? (
                     <div className="overview-stack">
                     <div className="section-intro">

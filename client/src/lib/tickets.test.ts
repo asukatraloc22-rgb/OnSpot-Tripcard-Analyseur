@@ -28,6 +28,14 @@ describe("living dossier tickets", () => {
     expect(merged[0].current.status).toBe("En Cours");
   });
 
+  it("dédoublonne par numéro quand les identifiants diffèrent", () => {
+    const first = normalizeTicket({ id: "internal-1", ticketNumber: "100575", current: { status: "Ouvert", subject: "PNR" } });
+    const second = normalizeTicket({ id: "external-1", ticketNumber: "100575", current: { status: "En cours", subject: "PNR confirmé" } });
+    const merged = mergeTickets([first], [second]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].current.status).toBe("En Cours");
+  });
+
   it("extrait les tickets imbriqués avec les statuts pending et resolved", () => {
     const raw = {
       metadata: {
