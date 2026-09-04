@@ -47,7 +47,7 @@ import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 
 const markUrl = "/onspot-favicon.svg";
-type Tab = "overview" | "actions" | "checks" | "itinerary" | "tickets";
+type Tab = "overview" | "actions" | "checks" | "itinerary" | "documents" | "tickets";
 type Workspace = "audit" | "recent" | "rules";
 type RecentStore = { savedAt: string; report: AuditReport };
 type ChecklistFilter = "all" | "remaining" | "completed";
@@ -968,11 +968,11 @@ export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace>("audit");
   const [tab, setTab] = useState<Tab>(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    if (requested === "checks" || requested === "itinerary" || requested === "actions" || requested === "tickets") {
+    if (requested === "checks" || requested === "itinerary" || requested === "documents" || requested === "actions" || requested === "tickets") {
       return requested;
     }
     if (report) {
-      const unresolved = report.issues.filter(issue => issue.status !== "ok").length;
+      const unresolved = report.issues.filter(issue => !resolved.includes(issue.id)).length;
       return unresolved > 0 ? "actions" : "checks";
     }
     return "overview";
