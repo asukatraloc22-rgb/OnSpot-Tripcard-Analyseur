@@ -48,6 +48,20 @@ describe("living dossier tickets", () => {
     expect(extracted.map(ticket => ticket.episode)).toEqual(expect.arrayContaining(["active", "resolved", "waiting"]));
   });
 
+  it("ignore les tickets placeholders sans objet ni preuve utile", () => {
+    const raw = {
+      tickets: [
+        { id: "noise-1", current: { status: "Unknown" }, messages: [] },
+        { id: "real-1", ticketNumber: "1201", current: { status: "En attente (Agence)", subject: "Chauffeur arrivée" }, messages: [{ id: "m-1", text: "Merci de confirmer le chauffeur" }] },
+      ],
+    };
+
+    const extracted = extractTickets(raw as Record<string, unknown>);
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0].id).toBe("real-1");
+    expect(extracted[0].current.subject).toContain("Chauffeur");
+  });
+
   it("conserve le plan Elite d’un export enrichi", () => {
     const report = analyzeTrip({
       schemaVersion: "3.1.0",

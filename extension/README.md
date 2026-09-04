@@ -14,7 +14,7 @@ Une extension Manifest V3 chargée localement en mode développeur **ne se met p
 
 Ouvrez une TripCard ou un écran de tickets sur `app.onspot.travel`, cliquez sur l’icône de l’extension, choisissez le périmètre demandé, puis lancez la capture. Les modes disponibles sont : voyage uniquement, ticket courant, voyage + tickets actifs visibles, tickets sélectionnés, tous les tickets visibles du voyage et tickets de la section courante. L’extension ne force pas l’ouverture de pages cachées et indique dans `collection.warnings` si le périmètre demandé n’est pas entièrement observable.
 
-L’extension reste un **extracteur autonome** : elle lit l’itinéraire, les vouchers, les documents et les tickets accessibles dans le DOM au moment de la capture, puis revient sur l’onglet actif au départ. Choisissez ensuite **Copier le JSON TripCard ELITE** ou **Télécharger le JSON**. Importez le fichier dans Trip Card Elite ou utilisez son bouton de collage depuis le presse-papiers.
+L’extension reste un **extracteur autonome** : elle lit l’itinéraire, les vouchers, les documents et les tickets accessibles dans le DOM au moment de la capture, puis revient sur l’onglet actif au départ. La version 2.2.0 ajoute un parcours de tickets sur les listes visibles et les pages de pagination détectées, en respectant le périmètre choisi (voyage uniquement, ticket courant, voyage + tickets actifs, tickets sélectionnés, tous les tickets visibles du voyage, tickets de la section courante). Choisissez ensuite **Copier le JSON TripCard ELITE** ou **Télécharger le JSON**. Importez le fichier dans Trip Card Elite ou utilisez son bouton de collage depuis le presse-papiers.
 
 ## Données exportées
 

@@ -174,6 +174,16 @@ function deriveRemaining(ticket: Ticket): string[] {
   return remains;
 }
 
+function isPlaceholderTicket(ticket: Ticket): boolean {
+  const subject = `${ticket.current.subject ?? ""} ${ticket.classification.subject ?? ""}`.trim();
+  const messageText = ticket.messages.map(message => message.text).join(" ").trim();
+  const eventText = ticket.events.map(event => event.summary).join(" ").trim();
+  const statusText = ticket.current.status ?? "";
+  const hasMeaningfulSubject = Boolean(subject && !/ticket\s*(à|a)\s*qualifier|sans objet|no subject|untitled|qualifier le ticket/i.test(subject));
+  const hasMeaningfulEvidence = Boolean(messageText || eventText || ticket.attachments.length || /agency|agence|traveler|voyageur|supplier|fournisseur|urgent|immediate|immédiat|waiting|pending|active|resolved|closed|ouvert|clôturé|résolu/i.test(statusText));
+  return !hasMeaningfulSubject && !hasMeaningfulEvidence;
+}
+
 export function normalizeTicket(value: unknown, index = 0): Ticket {
   const item = asRecord(value);
   const current = asRecord(item.current ?? item.statusDetails ?? item);
@@ -230,6 +240,10 @@ export function normalizeTicket(value: unknown, index = 0): Ticket {
   return ticket;
 }
 
+export function isMeaningfulTicket(ticket: Ticket) {
+  return !isPlaceholderTicket(ticket);
+}
+
 const isTicketLike = (value: unknown): value is Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
@@ -267,6 +281,7 @@ export function extractTickets(raw: Record<string, unknown>): Ticket[] {
   for (const candidate of candidates) {
     const key = candidate.id || candidate.ticketNumber;
     if (!key) continue;
+    if (isPlaceholderTicket(candidate)) continue;
     merged.set(key, candidate);
   }
 

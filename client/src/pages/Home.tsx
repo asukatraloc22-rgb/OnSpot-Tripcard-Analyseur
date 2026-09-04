@@ -47,7 +47,7 @@ import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 
 const markUrl = "/onspot-favicon.svg";
-type Tab = "overview" | "checks" | "itinerary" | "documents" | "actions" | "tickets" | "timeline";
+type Tab = "overview" | "actions" | "checks" | "itinerary" | "tickets";
 type Workspace = "audit" | "recent" | "rules";
 type RecentStore = { savedAt: string; report: AuditReport };
 type ChecklistFilter = "all" | "remaining" | "completed";
@@ -536,17 +536,18 @@ function FlightDetailDialog({
   );
 }
 
-const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À qualifier" }[episode]);
+const ticketEpisodeLabel = (episode: Ticket["episode"]) => ({ new: "Nouveau", active: "En cours", waiting: "En attente", resolved: "Résolu", reopened: "Rouvert", unknown: "À confirmer" }[episode]);
 const ticketEpisodeStatus = (episode: Ticket["episode"]): AuditStatus => episode === "resolved" ? "ok" : episode === "reopened" ? "critical" : episode === "unknown" ? "pending" : "warning";
 
 function TicketCard({ ticket, onOpen }: { ticket: Ticket; onOpen: () => void }) {
   const status = ticketEpisodeStatus(ticket.episode);
+  const formattedSubject = ticket.current.subject || ticket.classification.subject || "Objet non exporté";
   return (
     <article className="ticket-card">
       <div className="ticket-card-top">
         <div>
           <span className="eyebrow">Ticket #{ticket.ticketNumber} · {ticket.current.category || "Sans catégorie"}</span>
-          <h3>{ticket.current.subject || ticket.classification.subject || "Ticket à qualifier"}</h3>
+          <h3>{formattedSubject}</h3>
         </div>
         <StatusPill status={status} />
       </div>
@@ -967,7 +968,14 @@ export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace>("audit");
   const [tab, setTab] = useState<Tab>(() => {
     const requested = new URLSearchParams(window.location.search).get("tab");
-    return requested === "checks" || requested === "itinerary" || requested === "actions" || requested === "documents" ? requested : "overview";
+    if (requested === "checks" || requested === "itinerary" || requested === "actions" || requested === "tickets") {
+      return requested;
+    }
+    if (report) {
+      const unresolved = report.issues.filter(issue => issue.status !== "ok").length;
+      return unresolved > 0 ? "actions" : "checks";
+    }
+    return "overview";
   });
   const [selectedDomain, setSelectedDomain] = useState<string>("Tout");
   const [checklistFilter, setChecklistFilter] =
@@ -1407,6 +1415,12 @@ export default function Home() {
                     Synthèse <span>{openChecks}</span>
                   </button>
                   <button
+                    className={tab === "actions" ? "tab active" : "tab"}
+                    onClick={() => setTab("actions")}
+                  >
+                    Actions <span>{unresolved.length || "·"}</span>
+                  </button>
+                  <button
                     className={tab === "checks" ? "tab active" : "tab"}
                     onClick={() => {
                       setTab("checks");
@@ -1422,32 +1436,13 @@ export default function Home() {
                     Itinéraire <span>{report.steps.length}</span>
                   </button>
                   <button
-                    className={tab === "documents" ? "tab active" : "tab"}
-                    onClick={() => setTab("documents")}
-                  >
-                    Documents <span>{report.documentChecks.length}</span>
-                  </button>
-                  <button
-                    className={tab === "actions" ? "tab active" : "tab"}
-                    onClick={() => setTab("actions")}
-                  >
-                    Actions <span>{unresolved.length || "·"}</span>
-                  </button>
-                  <button
                     className={tab === "tickets" ? "tab active" : "tab"}
                     onClick={() => setTab("tickets")}
                   >
                     Tickets <span>{report.tickets.length || "·"}</span>
                   </button>
-                  <button
-                    className={tab === "timeline" ? "tab active" : "tab"}
-                    onClick={() => setTab("timeline")}
-                  >
-                    Timeline <span>{report.tickets.reduce((total, ticket) => total + ticket.messages.length + ticket.events.length + ticket.statusTransitions.length, 0) || "·"}</span>
-                  </button>
                 </div>
                 {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} /> : null}
-                {tab === "timeline" ? <TicketTimeline tickets={report.tickets} /> : null}
                 {tab === "overview" ? (
                     <div className="overview-stack">
                     <div className="section-intro">

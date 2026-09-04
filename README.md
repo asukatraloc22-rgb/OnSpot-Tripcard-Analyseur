@@ -40,3 +40,4 @@ Le projet est conçu pour un hébergement statique gratuit. Il peut être connec
 ## Étapes prévues après cette V1
 
 La prochaine itération devra valider l’export JSON réel sur plusieurs longueurs de séjour, renforcer les contrôles de cohérence entre dates et vouchers, ajouter une checklist H-24 exploitable et, seulement si nécessaire, proposer une couche IA optionnelle avec fragmentation des payloads et repli robuste. L’objectif est de conserver un mode local utile même si une API distante est indisponible.
+
