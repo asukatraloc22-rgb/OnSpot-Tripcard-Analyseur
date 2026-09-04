@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeTrip, demoPayload } from "./audit";
-import { buildAiEvidencePack } from "./ai360";
+import { buildAiEvidencePack, runAi360Analysis } from "./ai360";
 
 describe("ai360 evidence pack", () => {
   it("envoie un paquet ciblé sans le raw complet", () => {
@@ -13,3 +13,35 @@ describe("ai360 evidence pack", () => {
     expect(JSON.stringify(pack).length).toBeLessThan(50000);
   });
 });
+
+
+describe("résilience de l’appel Gemini", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("réessaie les 503 puis bascule vers le modèle de secours sans exposer le JSON technique", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { code: 503, message: "This model is currently experiencing high demand." } }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const report = analyzeTrip(demoPayload);
+
+    await expect(runAi360Analysis(report, { apiKey: "key-test", model: "gemini-flash-latest", retryBaseDelayMs: 0, maxRetriesPerAttempt: 1 })).rejects.toMatchObject({ kind: "overloaded" });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("gemini-flash-latest");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("gemini-flash-lite-latest");
+    try {
+      await runAi360Analysis(report, { apiKey: "key-test", model: "gemini-flash-latest", retryBaseDelayMs: 0, maxRetriesPerAttempt: 0 });
+    } catch (error) {
+      expect((error as Error).message).not.toContain("{ error:");
+      expect((error as Error).message).toContain("saturé");
+    }
+  });
+
+  it("ne réessaie pas une clé refusée comme si le service était saturé", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { code: 403, message: "API key not valid" } }), { status: 403, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const report = analyzeTrip(demoPayload);
+
+    await expect(runAi360Analysis(report, { apiKey: "bad-key", retryBaseDelayMs: 0, maxRetriesPerAttempt: 2 })).rejects.toMatchObject({ kind: "invalid-key" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
