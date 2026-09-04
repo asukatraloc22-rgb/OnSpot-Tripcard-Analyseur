@@ -66,4 +66,4 @@ L’onglet Timeline affiche 4 événements dans l’ordre : rappel H-24 complét
 
 ## Vérification du 31 août 2026 — IA et itinéraire
 
-Le preview `on-spot-tripcard-ticket-preview-g19tyhbvr.vercel.app` charge correctement avec `?demo=1`. La Synthèse affiche le panneau « Analyse IA 360° » avec clé Gemini locale, modèle configurable et bouton manuel. L’onglet Itinéraire affiche les filtres emoji `Tout`, `Vol`, `Activité`, `Hôtel`, `Ferry`, `Train`, `Restaurant`, `Location voiture` et `Transfert`. Après clic sur `✈️ Vol`, seules les deux étapes aériennes sont conservées. Aucun appel IA n’est déclenché sans action explicite de l’agent.
+Le preview `on-spot-tripcard-ticket-preview-g19tyhbvr.vercel.app` charge correctement avec `?demo=1`. La Synthèse affiche le panneau « Analyse IA 360° » avec clé OpenRouter locale, modèle configurable et bouton manuel. L’onglet Itinéraire affiche les filtres emoji `Tout`, `Vol`, `Activité`, `Hôtel`, `Ferry`, `Train`, `Restaurant`, `Location voiture` et `Transfert`. Après clic sur `✈️ Vol`, seules les deux étapes aériennes sont conservées. Aucun appel IA n’est déclenché sans action explicite de l’agent.

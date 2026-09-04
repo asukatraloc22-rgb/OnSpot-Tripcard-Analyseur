@@ -2,7 +2,7 @@
 
 ## Décision
 
-Pour une utilisation sans paiement, le premier choix reste l’API Gemini via Google AI Studio, avec une clé que Patrick fournit lui-même. La documentation officielle actuelle indique un niveau Free avec des tokens d’entrée et de sortie gratuits pour certains modèles, mais les limites sont appliquées au niveau du projet — pas de la clé API — et peuvent varier selon le modèle et le projet. Voir [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) et [Gemini rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
+Pour une utilisation locale, le choix retenu est OpenRouter avec une clé saisie manuellement dans le navigateur. La clé n’est ni envoyée au serveur de l’application ni ajoutée au dépôt ; les limites et tarifs dépendent du modèle OpenRouter choisi.
 
 DeepSeek est intéressant pour son contexte long et ses prix bas, mais sa page officielle de tarification décrit une facturation par tokens et un solde crédité ; ce n’est donc pas le choix « sans paiement » par défaut. Voir [DeepSeek Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing/). Il pourra devenir un fournisseur optionnel si Patrick souhaite renseigner une clé et un solde séparés.
 
@@ -14,4 +14,4 @@ Le modèle doit retourner un JSON strict contenant les incohérences nouvelles, 
 
 ## Séquence cible
 
-La séquence économique est : contrôles locaux gratuits, analyse IA 360° compacte à la demande, puis second appel approfondi uniquement si l’agent le demande ou si le premier résultat signale une preuve insuffisante. Les erreurs 429 sont gérées par attente et nouveau clic ; changer de clé ne contourne pas une limite de projet Gemini.
+La séquence économique est : contrôles locaux gratuits, analyse IA 360° compacte à la demande, puis second appel approfondi uniquement si l’agent le demande ou si le premier résultat signale une preuve insuffisante. La clé OpenRouter reste stockée uniquement dans le stockage local du navigateur.

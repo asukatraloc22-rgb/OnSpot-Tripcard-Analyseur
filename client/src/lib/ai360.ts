@@ -37,6 +37,8 @@ export class Ai360Error extends Error {
   }
 }
 
+const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+
 const clamp = (value: string, max: number) => value.length > max ? `${value.slice(0, max)}…` : value;
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
@@ -103,31 +105,23 @@ function parseJson(textValue: string): Ai360Result {
 }
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-const DEFAULT_FALLBACK_MODEL = "gemini-flash-lite-latest";
-
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const wait = (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds));
 
 function friendlyApiError(status: number, detail: string, model: string) {
-  if (status === 401 || status === 403) return new Ai360Error("invalid-key", `La clé Gemini a été refusée par Google. Vérifiez qu’elle est active, non bloquée et rattachée à un projet autorisé. Modèle essayé : ${model}.`);
-  if (TRANSIENT_STATUSES.has(status)) return new Ai360Error("overloaded", `Gemini est momentanément indisponible ou saturé (réponse ${status}). Les contrôles et la synthèse locale restent disponibles ; vous pourrez relancer l’enrichissement IA plus tard.`, [{ model, status, message: detail }]);
-  return new Ai360Error("network", `Gemini a refusé l’analyse (réponse ${status}). Aucun changement n’a été apporté au dossier local.`, [{ model, status, message: detail }]);
+  if (status === 401 || status === 403) return new Ai360Error("invalid-key", `La clé OpenRouter a été refusée. Vérifiez qu’elle est active. Modèle essayé : ${model}.`);
+  if (TRANSIENT_STATUSES.has(status)) return new Ai360Error("overloaded", `OpenRouter est momentanément indisponible (réponse ${status}). La synthèse locale reste disponible.`, [{ model, status, message: detail }]);
+  return new Ai360Error("network", `OpenRouter a refusé l’analyse (réponse ${status}).`, [{ model, status, message: detail }]);
 }
 
 async function requestModel(prompt: string, apiKey: string, model: string, maxRetries: number, baseDelayMs: number, attempts: Ai360Error["attempts"]) {
   for (let retry = 0; retry <= maxRetries; retry += 1) {
-    if (retry > 0) {
-      const jitter = baseDelayMs * (0.25 + Math.random() * 0.5);
-      await wait(Math.min(15000, baseDelayMs * (2 ** (retry - 1)) + jitter));
-    }
+    if (retry > 0) await wait(Math.min(15000, baseDelayMs * (2 ** (retry - 1))));
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: "Tu es un copilote opérationnel OnSpot Travel. Tu es précis, prudent et orienté résolution." }] },
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, responseMimeType: "application/json", responseSchema, maxOutputTokens: 2500 },
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": window.location.origin, "X-Title": "OnSpot TripCard Analyseur" },
+        body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu es un copilote opérationnel OnSpot Travel. Tu es précis, prudent et orienté résolution." }, { role: "user", content: prompt }], temperature: 0.1, response_format: { type: "json_object" }, max_tokens: 2500 }),
       });
       if (!response.ok) {
         const detail = clamp(await response.text(), 500);
@@ -135,43 +129,36 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
         if (TRANSIENT_STATUSES.has(response.status) && retry < maxRetries) continue;
         throw friendlyApiError(response.status, detail, model);
       }
-      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; error?: { message?: string } };
-      const output = text(data.candidates?.[0]?.content?.parts?.map(part => part.text ?? "").join(""));
-      if (!output) throw new Ai360Error("invalid-response", data.error?.message || "Gemini n’a renvoyé aucune analyse exploitable.", attempts);
+      const data = await response.json() as { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
+      const content = data.choices?.[0]?.message?.content;
+      const output = text(Array.isArray(content) ? content.map(part => part.text ?? "").join("") : content);
+      if (!output) throw new Ai360Error("invalid-response", data.error?.message || "OpenRouter n’a renvoyé aucune analyse exploitable.", attempts);
       return parseJson(output);
     } catch (error) {
       if (error instanceof Ai360Error) throw error;
-      const message = error instanceof Error ? error.message : "Erreur réseau inconnue";
-      attempts.push({ model, message });
-      if (retry < maxRetries) continue;
-      throw new Ai360Error("network", `La connexion à Gemini a échoué après plusieurs tentatives. Vérifiez votre réseau puis relancez l’analyse.`, attempts);
+      attempts.push({ model, message: error instanceof Error ? error.message : "Erreur réseau inconnue" });
+      if (retry >= maxRetries) throw new Ai360Error("network", "La connexion à OpenRouter a échoué.", attempts);
     }
   }
-  throw new Ai360Error("network", "Gemini n’a pas pu être contacté.", attempts);
+  throw new Ai360Error("network", "OpenRouter n’a pas pu être contacté.", attempts);
 }
 
 export async function runAi360Analysis(report: AuditReport, options: Ai360Options): Promise<{ result: Ai360Result; model: string; estimatedInputChars: number }> {
   const keys = [options.apiKey, ...(options.apiKeys ?? [])].map(key => key.trim()).filter(Boolean);
-  if (!keys.length) throw new Ai360Error("missing-key", "Clé Gemini absente. Ajoutez-la dans les réglages IA locaux pour lancer l’enrichissement, ou utilisez la synthèse locale sans IA.");
-  const requestedModel = options.model?.trim() || "gemini-flash-latest";
-  const models = Array.from(new Set([requestedModel, DEFAULT_FALLBACK_MODEL]));
+  if (!keys.length) throw new Ai360Error("missing-key", "Clé OpenRouter absente. Ajoutez-la dans les réglages IA locaux.");
+  const models = Array.from(new Set([options.model?.trim() || DEFAULT_MODEL]));
   const evidence = JSON.stringify(buildAiEvidencePack(report));
-  const prompt = `Analyse ce dossier de voyage et ses tickets comme un agent Elite senior. Commence par expliquer le voyage en langage naturel : destination, dates, voyageurs, composition, particularités et situation opérationnelle. Pour chaque ticket, explique obligatoirement son objet, l’élément du voyage concerné, la situation initiale, la situation actuelle, la cause prouvée ou inconnue, l’impact client, les actions déjà réalisées, ce qui reste à faire et la prochaine action concrète. Rédige aussi un compte rendu professionnel partageable avec l’agence. Ne répète pas les contrôles locaux déjà conformes. Cherche uniquement les incohérences nouvelles ou insuffisamment prouvées, les dépendances entre actions, les responsabilités et les échéances. Chaque action doit être immédiatement exécutable et préciser le destinataire ou le message à envoyer si pertinent. Ne transforme jamais une mention en preuve. Si une information manque, indique-le explicitement. Retourne uniquement le JSON conforme au schéma.\n\nPREUVES COMPACTES:\n${evidence}`;
+  const prompt = `Analyse ce dossier de voyage et ses tickets comme un agent Elite senior. Explique le voyage, les incohérences nouvelles, les actions ordonnées, les responsabilités et les échéances. Ne transforme jamais une mention en preuve. Si une information manque, indique-le explicitement. Retourne uniquement le JSON conforme au schéma.\n\nPREUVES COMPACTES:\n${evidence}`;
   const attempts: Ai360Error["attempts"] = [];
   let lastError: Ai360Error | undefined;
-  for (const apiKey of keys) {
-    for (const model of models) {
-      try {
-        const result = await requestModel(prompt, apiKey, model, options.maxRetriesPerAttempt ?? 2, options.retryBaseDelayMs ?? 1000, attempts);
-        return { result, model, estimatedInputChars: prompt.length };
-      } catch (error) {
-        lastError = error instanceof Ai360Error ? error : new Ai360Error("network", "Analyse IA impossible.", attempts);
-        if (lastError.kind === "invalid-key" || lastError.kind === "invalid-response") break;
-      }
+  for (const apiKey of keys) for (const model of models) {
+    try {
+      const result = await requestModel(prompt, apiKey, model, options.maxRetriesPerAttempt ?? 2, options.retryBaseDelayMs ?? 1000, attempts);
+      return { result, model, estimatedInputChars: prompt.length };
+    } catch (error) {
+      lastError = error instanceof Ai360Error ? error : new Ai360Error("network", "Analyse IA impossible.", attempts);
+      if (lastError.kind === "invalid-key" || lastError.kind === "invalid-response") break;
     }
   }
-  if (lastError?.kind === "overloaded") {
-    throw new Ai360Error("overloaded", "Gemini est temporairement saturé sur les modèles disponibles. La synthèse locale reste utilisable immédiatement ; réessayez dans quelques minutes. Aucun JSON technique n’est nécessaire pour diagnostiquer ce cas.", attempts);
-  }
-  throw new Ai360Error(lastError?.kind ?? "network", lastError?.message ?? "Analyse IA impossible. La synthèse locale reste disponible.", attempts);
+  throw new Ai360Error(lastError?.kind ?? "network", lastError?.message ?? "Analyse IA impossible.", attempts);
 }

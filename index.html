@@ -289,10 +289,10 @@
   let currentData = null;
   let auditResults = null;
 
-  // ============ Dual API Gemini ============
-  async function callGemini(prompt, system, forceJSON, preferFirst = true){
-    const key1 = document.getElementById('api-key-1')?.value || localStorage.getItem('gemini-api-1');
-    const key2 = document.getElementById('api-key-2')?.value || localStorage.getItem('gemini-api-2');
+  // ============ Dual API OpenRouter ============
+  async function callOpenRouter(prompt, system, forceJSON, preferFirst = true){
+    const key1 = document.getElementById('api-key-1')?.value || localStorage.getItem('openrouter-api-1');
+    const key2 = document.getElementById('api-key-2')?.value || localStorage.getItem('openrouter-api-2');
     
     const keys = preferFirst ? [key1, key2] : [key2, key1];
     
@@ -302,24 +302,24 @@
       
       try {
         const payload = {
-          model: "gemini-flash-latest",
+          model: localStorage.getItem('openrouter-model') || "openai/gpt-4o-mini",
           messages: [{ role: "user", content: prompt }],
           system: system,
           temperature: forceJSON ? 0 : 0.7,
           max_tokens: 2500,
         };
 
-        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/", {
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}`, "HTTP-Referer": window.location.origin, "X-Title": "OnSpot TripCard Analyseur" },
           body: JSON.stringify(payload),
         });
 
         if(res.ok){
           const data = await res.json();
           const text = data.choices?.[0]?.message?.content || "";
-          if(localStorage && apiKey === key1) localStorage.setItem('gemini-api-1', apiKey);
-          if(localStorage && apiKey === key2) localStorage.setItem('gemini-api-2', apiKey);
+          if(localStorage && apiKey === key1) localStorage.setItem('openrouter-api-1', apiKey);
+          if(localStorage && apiKey === key2) localStorage.setItem('openrouter-api-2', apiKey);
           return text;
         }
         
@@ -476,7 +476,7 @@ Réponds STRICTEMENT en JSON:
     const sys = "Tu es un auditeur expert de dossiers de voyage OnSpot. Sois exhaustif et précis.";
 
     try {
-      const res = await callGemini(auditPrompt, sys, true);
+      const res = await callOpenRouter(auditPrompt, sys, true);
       auditResults = JSON.parse(res);
       renderAuditResults(auditResults);
     } catch(err){
@@ -568,7 +568,7 @@ Réponds STRICTEMENT en JSON:
     const sys = "Texte brut uniquement, professionnel et bienveillant.";
 
     try {
-      const res = await callGemini(msgPrompt, sys, false);
+      const res = await callOpenRouter(msgPrompt, sys, false);
       document.getElementById('msg-output').value = res;
       document.getElementById('msg-output').style.display = 'block';
     } catch(e){

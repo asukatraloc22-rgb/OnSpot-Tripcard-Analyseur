@@ -173,8 +173,8 @@ function TripUnderstandingPanel({ narrative }: { narrative: ReturnType<typeof bu
 }
 
 function Ai360Panel({ report }: { report: AuditReport }) {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("tripcard:gemini-api-key") ?? "");
-  const [model, setModel] = useState(() => localStorage.getItem("tripcard:gemini-model") ?? "gemini-flash-latest");
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem("tripcard:openrouter-api-key") ?? "");
+  const [model, setModel] = useState(() => localStorage.getItem("tripcard:openrouter-model") ?? "openai/gpt-4o-mini");
   const [result, setResult] = useState<Ai360Result | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -182,8 +182,8 @@ function Ai360Panel({ report }: { report: AuditReport }) {
   const run = async () => {
     setBusy(true); setError("");
     try {
-      localStorage.setItem("tripcard:gemini-api-key", apiKey.trim());
-      localStorage.setItem("tripcard:gemini-model", model.trim());
+      localStorage.setItem("tripcard:openrouter-api-key", apiKey.trim());
+      localStorage.setItem("tripcard:openrouter-model", model.trim());
       const response = await runAi360Analysis(report, { apiKey, model });
       setResult(response.result); setInputChars(response.estimatedInputChars);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Analyse IA impossible."); }
@@ -192,7 +192,7 @@ function Ai360Panel({ report }: { report: AuditReport }) {
   return <section className="ai360-panel">
     <div className="panel-heading"><div><p className="eyebrow">Copilote à la demande · preuves compactes</p><h2>Analyse IA 360°</h2></div><Sparkles size={22} /></div>
     <p className="checks-intro">Les contrôles locaux passent en premier. L’IA n’est appelée que lorsque vous le demandez et reçoit un paquet condensé, pas tous les vouchers bruts.</p>
-    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé Gemini locale" aria-label="Clé Gemini" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="gemini-flash-latest" aria-label="Modèle Gemini" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
+    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
     {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
     {error ? <div className="ai360-error">{error}</div> : null}
     {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{result.newInconsistencies.length ? <div><h3>Nouvelles incohérences</h3>{result.newInconsistencies.map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{result.actions.map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}

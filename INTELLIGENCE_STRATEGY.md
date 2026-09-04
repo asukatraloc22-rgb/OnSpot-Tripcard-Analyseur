@@ -26,16 +26,10 @@ Le moteur ne doit jamais conclure « conforme » sur une simple mention textuell
 
 L’IA pourrait apporter une valeur limitée sur trois tâches non décisionnelles : proposer une **liste de passages ambigus** à lire dans un voucher long, suggérer un classement provisoire d’un document mal structuré, ou rédiger un brouillon de message à l’agence à partir d’actions déjà déterminées. Chaque résultat devrait être étiqueté « proposition IA », comporter ses extraits source et exiger une validation humaine.
 
-Pour cet usage, une option manuelle avec **Gemini 3.7 Flash** serait le candidat le plus cohérent si l’on conserve Google AI Studio : le modèle est présenté comme adapté aux flux agentiques/multimodaux et le niveau gratuit propose certains modèles et des jetons gratuits [1]. Cela ne garantit toutefois ni volume ni disponibilité : les quotas sont appliqués **par projet**, varient selon le modèle et peuvent renvoyer une limitation [2].
+Pour cet usage, une option manuelle via **OpenRouter** est retenue : l’agent saisit sa clé localement dans le navigateur et choisit le modèle OpenRouter adapté. Cela ne garantit toutefois ni volume ni disponibilité : les limites et tarifs varient selon le fournisseur et le modèle choisi.
 
-Le niveau gratuit indique également que le contenu peut être utilisé pour améliorer les produits Google [1]. Par conséquent, aucune pièce d’identité, numéro de document, PNR complet ou donnée client non nécessaire ne doit être envoyée à une IA gratuite. Avant tout appel futur, TripCard devrait afficher un consentement explicite, masquer les données sensibles et envoyer des fragments courts, jamais le JSON complet.
+Par conséquent, aucune pièce d’identité, numéro de document, PNR complet ou donnée client non nécessaire ne doit être envoyée au fournisseur IA. Avant tout appel, TripCard doit afficher un consentement explicite, masquer les données sensibles et envoyer des fragments courts, jamais le JSON complet.
 
 ## Recommandation actuelle
 
-Ne pas ajouter d’IA dans cette version. La qualité de l’extraction structurée, les preuves et la checklist humaine sont aujourd’hui le meilleur levier pour des audits rigoureux et répétables. Une IA peut être ajoutée plus tard comme bouton facultatif « Examiner les ambiguïtés », sans changer le fonctionnement local par défaut.
-
-## Références
-
-[1] [Google AI for Developers — Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing)
-
-[2] [Google AI for Developers — Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+Ne pas ajouter d’IA dans cette version. La qualité de l’extraction structurée, les preuves et la checklist humaine sont aujourd’hui le meilleur levier pour des audits rigoureux et répétables. L’analyse OpenRouter reste un bouton facultatif, sans changer le fonctionnement local par défaut.
