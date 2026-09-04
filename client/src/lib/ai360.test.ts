@@ -15,23 +15,22 @@ describe("ai360 evidence pack", () => {
 });
 
 
-describe("résilience de l’appel Gemini", () => {
+describe("résilience de l’appel OpenRouter", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("réessaie les 503 puis bascule vers le modèle de secours sans exposer le JSON technique", async () => {
+  it("réessaie les 503 sans exposer le JSON technique", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: { code: 503, message: "This model is currently experiencing high demand." } }), { status: 503, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const report = analyzeTrip(demoPayload);
 
-    await expect(runAi360Analysis(report, { apiKey: "key-test", model: "gemini-flash-latest", retryBaseDelayMs: 0, maxRetriesPerAttempt: 1 })).rejects.toMatchObject({ kind: "overloaded" });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("gemini-flash-latest");
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("gemini-flash-lite-latest");
+    await expect(runAi360Analysis(report, { apiKey: "key-test", model: "openai/gpt-4o-mini", retryBaseDelayMs: 0, maxRetriesPerAttempt: 1 })).rejects.toMatchObject({ kind: "overloaded" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("openrouter.ai");
     try {
-      await runAi360Analysis(report, { apiKey: "key-test", model: "gemini-flash-latest", retryBaseDelayMs: 0, maxRetriesPerAttempt: 0 });
+      await runAi360Analysis(report, { apiKey: "key-test", model: "openai/gpt-4o-mini", retryBaseDelayMs: 0, maxRetriesPerAttempt: 0 });
     } catch (error) {
       expect((error as Error).message).not.toContain("{ error:");
-      expect((error as Error).message).toContain("saturé");
+      expect((error as Error).message).toContain("indisponible");
     }
   });
 

@@ -32,7 +32,7 @@ export class Ai360Error extends Error {
   constructor(kind: Ai360Error["kind"], message: string, attempts: Ai360Error["attempts"] = []) {
     super(message);
     this.name = "Ai360Error";
-    this.kind = kind;
+      this.kind = kind;
     this.attempts = attempts;
   }
 }
@@ -107,11 +107,12 @@ function parseJson(textValue: string): Ai360Result {
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 const wait = (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds));
+const appOrigin = () => globalThis.location?.origin || "http://localhost";
 
 function friendlyApiError(status: number, detail: string, model: string) {
-  if (status === 401 || status === 403) return new Ai360Error("invalid-key", `La clé OpenRouter a été refusée. Vérifiez qu’elle est active. Modèle essayé : ${model}.`);
-  if (TRANSIENT_STATUSES.has(status)) return new Ai360Error("overloaded", `OpenRouter est momentanément indisponible (réponse ${status}). La synthèse locale reste disponible.`, [{ model, status, message: detail }]);
-  return new Ai360Error("network", `OpenRouter a refusé l’analyse (réponse ${status}).`, [{ model, status, message: detail }]);
+  if (status === 401 || status === 403) return { kind: "invalid-key" as const, message: `La clé OpenRouter a été refusée. Vérifiez qu’elle est active. Modèle essayé : ${model}.`, attempts: [] };
+  if (TRANSIENT_STATUSES.has(status)) return { kind: "overloaded" as const, message: `OpenRouter est momentanément indisponible (réponse ${status}). La synthèse locale reste disponible.`, attempts: [{ model, status, message: detail }] };
+  return { kind: "network" as const, message: `OpenRouter a refusé l’analyse (réponse ${status}).`, attempts: [{ model, status, message: detail }] };
 }
 
 async function requestModel(prompt: string, apiKey: string, model: string, maxRetries: number, baseDelayMs: number, attempts: Ai360Error["attempts"]) {
@@ -120,7 +121,7 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
     try {
       const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": window.location.origin, "X-Title": "OnSpot TripCard Analyseur" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": appOrigin(), "X-Title": "OnSpot TripCard Analyseur" },
         body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu es un copilote opérationnel OnSpot Travel. Tu es précis, prudent et orienté résolution." }, { role: "user", content: prompt }], temperature: 0.1, response_format: { type: "json_object" }, max_tokens: 2500 }),
       });
       if (!response.ok) {
@@ -136,6 +137,10 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
       return parseJson(output);
     } catch (error) {
       if (error instanceof Ai360Error) throw error;
+      if (typeof error === "object" && error !== null && typeof (error as { kind?: unknown }).kind === "string") {
+        const typedError = error as Ai360Error;
+        throw new Ai360Error(typedError.kind, typedError.message, typedError.attempts);
+      }
       attempts.push({ model, message: error instanceof Error ? error.message : "Erreur réseau inconnue" });
       if (retry >= maxRetries) throw new Ai360Error("network", "La connexion à OpenRouter a échoué.", attempts);
     }
@@ -156,7 +161,9 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
       const result = await requestModel(prompt, apiKey, model, options.maxRetriesPerAttempt ?? 2, options.retryBaseDelayMs ?? 1000, attempts);
       return { result, model, estimatedInputChars: prompt.length };
     } catch (error) {
-      lastError = error instanceof Ai360Error ? error : new Ai360Error("network", "Analyse IA impossible.", attempts);
+      if (error instanceof Ai360Error) lastError = error;
+      else if (typeof error === "object" && error !== null && typeof (error as { kind?: unknown }).kind === "string") lastError = error as Ai360Error;
+      else lastError = new Ai360Error("network", "Analyse IA impossible.", attempts);
       if (lastError.kind === "invalid-key" || lastError.kind === "invalid-response") break;
     }
   }
