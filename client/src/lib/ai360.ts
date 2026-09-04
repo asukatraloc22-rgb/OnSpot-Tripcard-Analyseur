@@ -100,7 +100,11 @@ const responseSchema = {
 };
 
 function parseJson(textValue: string): Ai360Result {
-  const cleaned = textValue.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const raw = textValue.trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  const cleaned = (fenced ?? (start >= 0 && end > start ? raw.slice(start, end + 1) : raw)).trim();
   if (!cleaned) throw new Ai360Error("invalid-response", "OpenRouter a renvoyé une réponse vide.");
   try {
     return JSON.parse(cleaned) as Ai360Result;
@@ -123,11 +127,14 @@ function friendlyApiError(status: number, detail: string, model: string) {
 async function requestModel(prompt: string, apiKey: string, model: string, maxRetries: number, baseDelayMs: number, attempts: Ai360Error["attempts"]) {
   for (let retry = 0; retry <= maxRetries; retry += 1) {
     if (retry > 0) await wait(Math.min(15000, baseDelayMs * (2 ** (retry - 1))));
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => controller.abort(), 60000);
     try {
       const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "HTTP-Referer": appOrigin(), "X-Title": "OnSpot TripCard Analyseur" },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu es un copilote opérationnel OnSpot Travel. Tu es précis, prudent et orienté résolution." }, { role: "user", content: prompt }], temperature: 0.1, response_format: { type: "json_object" }, max_tokens: 2500 }),
+        body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu es un copilote opérationnel OnSpot Travel. Tu es précis, prudent et orienté résolution." }, { role: "user", content: prompt }], temperature: 0.1, response_format: { type: "json_object" }, max_tokens: 6000 }),
+        signal: controller.signal,
       });
       if (!response.ok) {
         const detail = clamp(await response.text(), 500);
@@ -136,7 +143,7 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
         throw friendlyApiError(response.status, detail, model);
       }
       const rawBody = await response.text();
-      let data: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
+      let data: { choices?: Array<{ finish_reason?: string; message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
       try {
         data = JSON.parse(rawBody) as typeof data;
       } catch {
@@ -145,6 +152,9 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
       const content = data.choices?.[0]?.message?.content;
       const output = text(Array.isArray(content) ? content.map(part => part.text ?? "").join("") : content);
       if (!output) throw new Ai360Error("invalid-response", data.error?.message || "OpenRouter n’a renvoyé aucune analyse exploitable.", attempts);
+      if (data.choices?.[0]?.finish_reason === "length") {
+        throw new Ai360Error("invalid-response", "OpenRouter a tronqué le JSON : la réponse a atteint la limite de tokens. Réduisez le dossier ou utilisez un modèle avec une sortie plus longue.", attempts);
+      }
       try {
         return parseJson(output);
       } catch (error) {
@@ -166,6 +176,8 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
           attempts,
         );
       }
+    } finally {
+      globalThis.clearTimeout(timeout);
     }
   }
   throw new Ai360Error("network", "OpenRouter n’a pas pu être contacté.", attempts);

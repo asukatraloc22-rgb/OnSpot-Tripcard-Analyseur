@@ -42,5 +42,13 @@ describe("résilience de l’appel OpenRouter", () => {
     await expect(runAi360Analysis(report, { apiKey: "bad-key", retryBaseDelayMs: 0, maxRetriesPerAttempt: 2 })).rejects.toMatchObject({ kind: "invalid-key" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("accepte un JSON entouré de markdown", async () => {
+    const report = analyzeTrip(demoPayload);
+    const result = { tripNarrative: {}, ticketExplanations: [], agencyReport: {}, situation: "ok", verdict: "stable", newInconsistencies: [], actions: [], timeline: [], responsibilities: [], confidence: 0.8, limitations: [] };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: `Voici le résultat :\n\n\`\`\`json\n${JSON.stringify(result)}\n\`\`\`` } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(runAi360Analysis(report, { apiKey: "key-test", maxRetriesPerAttempt: 0 })).resolves.toMatchObject({ result: { situation: "ok" } });
+  });
 });
 
