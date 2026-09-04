@@ -972,7 +972,7 @@ export default function Home() {
       return requested;
     }
     if (report) {
-      const unresolved = report.issues.filter(issue => !resolved.includes(issue.id)).length;
+      const unresolved = report.issues.length;
       return unresolved > 0 ? "actions" : "checks";
     }
     return "overview";
