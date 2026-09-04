@@ -101,7 +101,12 @@ const responseSchema = {
 
 function parseJson(textValue: string): Ai360Result {
   const cleaned = textValue.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  return JSON.parse(cleaned) as Ai360Result;
+  if (!cleaned) throw new Ai360Error("invalid-response", "OpenRouter a renvoyé une réponse vide.");
+  try {
+    return JSON.parse(cleaned) as Ai360Result;
+  } catch {
+    throw new Ai360Error("invalid-response", "OpenRouter a renvoyé un JSON incomplet ou invalide.");
+  }
 }
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -130,11 +135,22 @@ async function requestModel(prompt: string, apiKey: string, model: string, maxRe
         if (TRANSIENT_STATUSES.has(response.status) && retry < maxRetries) continue;
         throw friendlyApiError(response.status, detail, model);
       }
-      const data = await response.json() as { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
+      const rawBody = await response.text();
+      let data: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>; error?: { message?: string } };
+      try {
+        data = JSON.parse(rawBody) as typeof data;
+      } catch {
+        throw new Ai360Error("invalid-response", rawBody.trim() ? "OpenRouter a renvoyé une réponse non JSON." : "OpenRouter a renvoyé une réponse vide.");
+      }
       const content = data.choices?.[0]?.message?.content;
       const output = text(Array.isArray(content) ? content.map(part => part.text ?? "").join("") : content);
       if (!output) throw new Ai360Error("invalid-response", data.error?.message || "OpenRouter n’a renvoyé aucune analyse exploitable.", attempts);
-      return parseJson(output);
+      try {
+        return parseJson(output);
+      } catch (error) {
+        if (error instanceof Ai360Error) throw error;
+        throw new Ai360Error("invalid-response", "OpenRouter a renvoyé un JSON incomplet ou invalide.");
+      }
     } catch (error) {
       if (error instanceof Ai360Error) throw error;
       if (typeof error === "object" && error !== null && typeof (error as { kind?: unknown }).kind === "string") {

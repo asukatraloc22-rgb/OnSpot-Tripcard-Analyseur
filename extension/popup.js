@@ -206,58 +206,84 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       return document.querySelector('[role="tab"][aria-selected="true"], [role="tab"].active, [role="tab"].is-active, button.active, button.is-active') || null;
     }
 
-    function getTravelerNameCandidates() {
-      const names = new Set();
-      const text = document.body.innerText || '';
-      const regex = /\b(?:Mr|Mrs|Ms|M\.|Mme|Mlle|Dr)\.?\s*[A-ZÀ-ÿ][a-zà-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][a-zà-ÿ'’-]+){1,3}\b/g;
-      for (const match of text.matchAll(regex)) {
-        const value = match[0].replace(/\s+/g, ' ').trim();
-        if (!value || /^(Mr|Mrs|Ms|M\.|Mme|Mlle|Dr|Voyage|Travel|Ticket|Hotel|Flight|Vol|Itin|Destination|Agence|OnSpot)$/i.test(value)) continue;
-        names.add(value);
-      }
-
-      const genericRegex = /\b[A-ZÀ-ÿ][a-zà-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][a-zà-ÿ'’-]+){1,3}\b/g;
-      for (const match of text.matchAll(genericRegex)) {
-        const value = match[0].replace(/\s+/g, ' ').trim();
-        if (/(Voyage|Travel|Ticket|Hotel|Flight|Vol|Itin|Destination|Agence|OnSpot|Rappel|Note)$/i.test(value)) continue;
-        if (value.split(/\s+/).length >= 2 && value.split(/\s+/).length <= 5) names.add(value);
-      }
-      return Array.from(names);
+    function cleanTravelerName(value) {
+      return String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
     }
 
-    function getTravelerBirthdayHints() {
-      const text = document.body.innerText || '';
+    function travelerNameFromText(value) {
+      const lines = String(value || '').split(/\r?\n/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+      const match = lines.join(' ').match(/\b(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+){1,3})/i);
+      return cleanTravelerName(match?.[1] || lines.find(line => /^[A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+){1,3}$/.test(line)) || '');
+    }
+
+    function findTravelerPanel() {
+      const heading = Array.from(document.querySelectorAll('h1, h2, h3, h4, button, [role="heading"], div, span'))
+        .find(element => /^Voyageurs\s*(?:\(\s*\d+\s*\))?/i.test((element.textContent || '').trim()));
+      if (!heading) return null;
+      let panel = heading;
+      for (let depth = 0; depth < 5 && panel.parentElement; depth += 1) {
+        panel = panel.parentElement;
+        if ((panel.innerText || '').match(/Voyageurs\s*\(\s*\d+\s*\)/i) && (panel.innerText || '').length < 12000) return panel;
+      }
+      return heading.parentElement;
+    }
+
+    function getTravelerBirthdayHints(text) {
       const hits = [];
       const birthdayRegex = /(date\s+de\s+naissance|birth\s+date|birthday|date\s+d['’]naissance|date\s+naissance)[^\n]{0,80}(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})/gi;
-      for (const match of text.matchAll(birthdayRegex)) {
+      for (const match of String(text || '').matchAll(birthdayRegex)) {
         hits.push((match[0] || '').replace(/\s+/g, ' ').trim());
       }
       return hits;
     }
 
-    function extractTravelerProfileData() {
-      const travelerButtons = Array.from(document.querySelectorAll('button, a, [role="button"], li, [data-traveler-id], [data-passenger-id]'))
-        .filter((element) => {
-          const text = (element.textContent || '').trim();
-          const label = (element.getAttribute('aria-label') || '').trim();
-          return /voyageur|traveler|passager|passenger|participant|guest|personne|guest/i.test(`${text} ${label}`);
-        });
+    function extractPersonalDetails(text) {
+      return String(text || '').split(/\r?\n/).map(line => line.replace(/\s+/g, ' ').trim()).filter(line => line && /date\s+(?:de\s+)?naissance|birth|anniversaire|@|téléphone|telephone|mobile|portable|phone|passeport|passport|document number|numéro de document/i.test(line)).slice(0, 30);
+    }
 
-      const travelerNames = getTravelerNameCandidates();
-      const birthdayHints = getTravelerBirthdayHints();
-
-      for (const button of travelerButtons) {
-        try {
-          button.click();
-        } catch (e) {}
+    async function extractTravelerProfileData() {
+      const panel = findTravelerPanel();
+      if (!panel) return { travelerNames: [], travelerProfiles: [], birthdayHints: [], clickedTravelerButtons: 0, clickedPencilButtons: 0 };
+      const expandButton = Array.from(panel.querySelectorAll('button, [role="button"]'))
+        .find(element => /afficher\s+\d+\s+de\s+plus|show\s+\d+\s+more/i.test((element.textContent || '').trim()));
+      if (expandButton) {
+        try { expandButton.click(); await sleep(250); } catch (e) {}
       }
 
-      const afterOpenNames = getTravelerNameCandidates();
-      const allNames = Array.from(new Set([...travelerNames, ...afterOpenNames]));
+      const rowSelector = '[data-traveler-id], [data-passenger-id], [data-guest-id], li, article';
+      let rows = Array.from(panel.querySelectorAll(rowSelector)).filter(element => travelerNameFromText(element.innerText || ''));
+      if (!rows.length) rows = Array.from(panel.querySelectorAll('button')).filter(element => travelerNameFromText(element.innerText || ''));
+      const uniqueRows = [];
+      const seenNames = new Set();
+      for (const row of rows) {
+        const name = travelerNameFromText(row.innerText || '');
+        if (!name || seenNames.has(name)) continue;
+        seenNames.add(name); uniqueRows.push({ row, name });
+      }
+      const profiles = [];
+      let clickedPencilButtons = 0;
+      for (const entry of uniqueRows) {
+        const rowTextBefore = entry.row.innerText || '';
+        const pencil = Array.from(entry.row.querySelectorAll('button, [role="button"], a'))
+          .find(element => /crayon|edit|modifier|pencil/i.test(`${element.getAttribute('aria-label') || ''} ${element.getAttribute('title') || ''} ${element.textContent || ''}`));
+        try {
+          (pencil || entry.row).click();
+          if (pencil) clickedPencilButtons += 1;
+          await sleep(180);
+        } catch (e) {}
+        const detailText = document.body.innerText || rowTextBefore;
+        const details = extractPersonalDetails(detailText);
+        const birthdayHints = getTravelerBirthdayHints(details.join('\n'));
+        profiles.push({ name: entry.name, details, birthdayHints });
+      }
+      const travelerNames = uniqueRows.map(entry => entry.name);
+      const birthdayHints = Array.from(new Set(profiles.flatMap(profile => profile.birthdayHints)));
       return {
-        travelerNames: allNames,
+        travelerNames,
+        travelerProfiles: profiles,
         birthdayHints,
-        clickedTravelerButtons: travelerButtons.length,
+        clickedTravelerButtons: uniqueRows.length,
+        clickedPencilButtons,
       };
     }
 
@@ -294,7 +320,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     // Sert de filet en cas d'onglet non détecté par la suite.
     const initialSnapshot = (document.body.innerText || '').trim();
     const originalTab = activeTabElement();
-    const travelerData = extractTravelerProfileData();
+    const travelerData = await extractTravelerProfileData();
     const ticketMatch = initialSnapshot.match(/\bTickets?\s*\(\s*(\d+)\s*\)/i);
     const ticketsPresence = { detected: Boolean(ticketMatch || /\bTickets?\b/i.test(initialSnapshot)), count: ticketMatch ? Number(ticketMatch[1]) : null, evidence: ticketMatch ? ticketMatch[0] : (/\bTickets?\b/i.test(initialSnapshot) ? 'Onglet Tickets visible sur la page principale.' : 'Aucun onglet Tickets visible dans la capture initiale.') };
     scanFilesOnCurrentDOM();
@@ -701,7 +727,7 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [], visibleOnly: true },
     reference, travelers, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
-    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : [], travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
     tickets: capturedTickets,
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
