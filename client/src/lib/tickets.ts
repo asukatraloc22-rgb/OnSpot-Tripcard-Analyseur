@@ -307,7 +307,7 @@ export function mergeTickets(existing: Ticket[], incoming: Ticket[]): Ticket[] {
       return Array.from(result.values());
     };
     const merged = normalizeTicket({ ...previous, ...next, current: { ...previous.current, ...next.current }, classification: { ...previous.classification, ...next.classification }, messages: mergeUnique(previous.messages, next.messages), events: mergeUnique(previous.events, next.events), reminders: mergeUnique(previous.reminders, next.reminders), attachments: mergeUnique(previous.attachments, next.attachments), statusTransitions: [...previous.statusTransitions, ...next.statusTransitions] });
-    for (const [alias, value] of byId) if (value === previous) byId.delete(alias);
+    Array.from(byId.entries()).forEach(([alias, value]) => { if (value === previous) byId.delete(alias); });
     index(merged);
   }
   return Array.from(new Set(byId.values())).sort((a, b) => (b.current.lastResponseAt ?? "").localeCompare(a.current.lastResponseAt ?? ""));
