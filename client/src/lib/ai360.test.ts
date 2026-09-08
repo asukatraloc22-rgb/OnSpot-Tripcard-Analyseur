@@ -50,5 +50,19 @@ describe("résilience de l’appel OpenRouter", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(runAi360Analysis(report, { apiKey: "key-test", maxRetriesPerAttempt: 0 })).resolves.toMatchObject({ result: { situation: "ok" } });
   });
+
+  it("normalise les tableaux absents de la réponse IA", async () => {
+    const report = analyzeTrip(demoPayload);
+    const result = { situation: "ok", verdict: "stable", confidence: 0.8 };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(result) } }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await runAi360Analysis(report, { apiKey: "key-test", maxRetriesPerAttempt: 0 });
+
+    expect(response.result.newInconsistencies).toEqual([]);
+    expect(response.result.actions).toEqual([]);
+    expect(response.result.tripNarrative.particularities).toEqual([]);
+    expect(response.result.limitations).toEqual([]);
+  });
 });
 

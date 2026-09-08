@@ -195,7 +195,7 @@ function Ai360Panel({ report }: { report: AuditReport }) {
     <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
     {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
     {error ? <div className="ai360-error">{error}</div> : null}
-    {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{result.newInconsistencies.length ? <div><h3>Nouvelles incohérences</h3>{result.newInconsistencies.map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{result.actions.map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}
+    {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3>{(result?.newInconsistencies ?? []).map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{(result?.actions ?? []).map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}
   </section>;
 }
 
@@ -1057,12 +1057,13 @@ export default function Home() {
     }
   };
   const copyTicketsJson = async () => {
-    if (!report?.tickets.length) {
+    if (!(report?.tickets?.length ?? 0)) {
       toast.info("Aucun ticket à copier.");
       return;
     }
-    await navigator.clipboard.writeText(JSON.stringify(report.tickets, null, 2));
-    toast.success("Tickets copiés", { description: `${report.tickets.length} ticket(s) inclus.` });
+    const tickets = report?.tickets ?? [];
+    await navigator.clipboard.writeText(JSON.stringify(tickets, null, 2));
+    toast.success("Tickets copiés", { description: `${tickets.length} ticket(s) inclus.` });
   };
   const recentReports = useMemo<RecentStore[]>(() => {
     try {

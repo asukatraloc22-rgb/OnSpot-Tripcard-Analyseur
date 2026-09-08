@@ -31,7 +31,13 @@ export function normalizeReport(value: unknown): AuditReport | null {
   const source = value as Partial<AuditReport> & Record<string, unknown>;
   if (!Array.isArray(source.steps) || !Array.isArray(source.issues)) return null;
   if ((!Array.isArray(source.reminders) || !Array.isArray(source.documentChecks) || !Array.isArray(source.checks) || !Array.isArray(source.flightDetails)) && source.raw && typeof source.raw === "object") return analyzeTrip(source.raw as Record<string, unknown>);
-  const metadata = { ...emptyMetadata(), ...(source.metadata && typeof source.metadata === "object" ? source.metadata : {}) };
+  const metadataSource = recordOf(source.metadata);
+  const metadata = {
+    ...emptyMetadata(),
+    ...metadataSource,
+    identityDocuments: arrayFrom(metadataSource.identityDocuments).map(String),
+    profileNotes: arrayFrom(metadataSource.profileNotes).map(String),
+  };
   const reminders = Array.isArray(source.reminders) ? source.reminders.map((reminder) => ({ ...reminder, timezone: "UTC" as const })) : [];
   const stats = { checked: 0, passed: 0, warnings: 0, critical: 0, ...(source.stats && typeof source.stats === "object" ? source.stats : {}) };
   const domains = Array.isArray(source.domains) ? source.domains : defaultDomains();

@@ -107,10 +107,37 @@ function parseJson(textValue: string): Ai360Result {
   const cleaned = (fenced ?? (start >= 0 && end > start ? raw.slice(start, end + 1) : raw)).trim();
   if (!cleaned) throw new Ai360Error("invalid-response", "OpenRouter a renvoyé une réponse vide.");
   try {
-    return JSON.parse(cleaned) as Ai360Result;
+    return normalizeAi360Result(JSON.parse(cleaned));
   } catch {
     throw new Ai360Error("invalid-response", "OpenRouter a renvoyé un JSON incomplet ou invalide.");
   }
+}
+
+const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? value : [];
+const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+function normalizeAi360Result(value: unknown): Ai360Result {
+  const source = asRecord(value);
+  const narrative = asRecord(source.tripNarrative);
+  const agencyReport = asRecord(source.agencyReport);
+  const responsibilities = asArray<Record<string, unknown>>(source.responsibilities).map(item => ({ ...item, items: asArray<string>(item.items) }));
+  return {
+    ...source,
+    tripNarrative: {
+      ...narrative,
+      particularities: asArray<string>(narrative.particularities),
+      openPoints: asArray<string>(narrative.openPoints),
+      resolvedPoints: asArray<string>(narrative.resolvedPoints),
+      dayReads: asArray<Record<string, unknown>>(narrative.dayReads).map(day => ({ ...day, steps: asArray<string>(day.steps), attention: asArray<string>(day.attention) })),
+    },
+    ticketExplanations: asArray(source.ticketExplanations),
+    agencyReport,
+    newInconsistencies: asArray(source.newInconsistencies),
+    actions: asArray(source.actions),
+    timeline: asArray(source.timeline),
+    responsibilities,
+    limitations: asArray<string>(source.limitations),
+  } as Ai360Result;
 }
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
