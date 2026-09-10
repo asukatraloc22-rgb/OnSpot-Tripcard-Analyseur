@@ -43,7 +43,7 @@ const clamp = (value: string, max: number) => value.length > max ? `${value.slic
 const text = (value: unknown) => typeof value === "string" ? value : "";
 
 export function buildAiEvidencePack(report: AuditReport) {
-  const localExplanations = report.tickets.map((ticket, index) => explainTicket(ticket, report, index));
+  const localExplanations = (report?.tickets ?? []).map((ticket, index) => explainTicket(ticket, report, index));
   const localNarrative = buildTripNarrative(report, localExplanations);
   return {
     dossier: {
@@ -52,12 +52,12 @@ export function buildAiEvidencePack(report: AuditReport) {
       destination: report.destination,
       startDate: report.startDate,
       endDate: report.endDate,
-      travelers: report.travelers.slice(0, 12),
+      travelers: (report?.travelers ?? []).slice(0, 12),
       metadata: { agency: report.metadata.agency, tripId: report.metadata.tripId, package: report.metadata.package, profileNotes: report.metadata.profileNotes.slice(0, 8) },
     },
-    itinerary: report.steps.slice(0, 30).map(step => ({ id: step.id, type: step.type, title: clamp(step.title, 160), location: clamp(step.location, 180), date: step.date, time: step.time })),
-    checks: report.checks.filter(check => check.status !== "ok").slice(0, 25).map(check => ({ domain: check.domain, label: check.label, status: check.status, finding: clamp(check.finding, 320), evidence: clamp(check.evidence, 320), action: clamp(check.action ?? "", 320) })),
-    tickets: report.tickets.slice(0, 30).map((ticket, ticketIndex) => ({
+    itinerary: (report?.steps ?? []).slice(0, 30).map(step => ({ id: step.id, type: step.type, title: clamp(step.title, 160), location: clamp(step.location, 180), date: step.date, time: step.time })),
+    checks: (report?.checks ?? []).filter(check => check.status !== "ok").slice(0, 25).map(check => ({ domain: check.domain, label: check.label, status: check.status, finding: clamp(check.finding, 320), evidence: clamp(check.evidence, 320), action: clamp(check.action ?? "", 320) })),
+    tickets: (report?.tickets ?? []).slice(0, 30).map((ticket, ticketIndex) => ({
       id: ticket.id,
       number: ticket.ticketNumber,
       status: ticket.current.status,
@@ -67,14 +67,14 @@ export function buildAiEvidencePack(report: AuditReport) {
       episode: ticket.episode,
       classification: ticket.classification,
       localExplanation: localExplanations[ticketIndex],
-      whatRemains: ticket.whatRemains.slice(0, 6).map(item => clamp(item, 280)),
-      messages: ticket.messages.slice(-4).map(message => ({ at: message.createdAt, author: message.author, text: clamp(message.text, 900) })),
-      events: [...ticket.events, ...ticket.statusTransitions].slice(-8).map(event => { const item = event as { createdAt?: string; at?: string; kind?: string; summary?: string; from?: string; to?: string; actor?: string }; return { at: item.createdAt ?? item.at, kind: item.kind ?? "status", summary: clamp(item.summary ?? `${item.from ?? ""} → ${item.to ?? ""}`, 260), actor: item.actor }; }),
-      attachments: ticket.attachments.slice(0, 8).map(attachment => ({ name: attachment.name, kind: attachment.kind, extractionStatus: attachment.extractionStatus, excerpt: clamp(attachment.excerpt ?? "", 500) })),
+      whatRemains: (ticket.whatRemains ?? []).slice(0, 6).map(item => clamp(item, 280)),
+      messages: (ticket.messages ?? []).slice(-4).map(message => ({ at: message.createdAt, author: message.author, text: clamp(message.text, 900) })),
+      events: [...(ticket.events ?? []), ...(ticket.statusTransitions ?? [])].slice(-8).map(event => { const item = event as { createdAt?: string; at?: string; kind?: string; summary?: string; from?: string; to?: string; actor?: string }; return { at: item.createdAt ?? item.at, kind: item.kind ?? "status", summary: clamp(item.summary ?? `${item.from ?? ""} → ${item.to ?? ""}`, 260), actor: item.actor }; }),
+      attachments: (ticket.attachments ?? []).slice(0, 8).map(attachment => ({ name: attachment.name, kind: attachment.kind, extractionStatus: attachment.extractionStatus, excerpt: clamp(attachment.excerpt ?? "", 500) })),
     })),
     localElite: {
-      flags: report.elite.flags.slice(0, 20).map(flag => ({ severity: flag.severity, label: flag.label, description: clamp(flag.description, 300), action: clamp(flag.action, 320), evidence: clamp(flag.evidence ?? "", 320), responsible: flag.responsible })),
-      reminders: report.elite.reminderPlan,
+      flags: (report.elite?.flags ?? []).slice(0, 20).map(flag => ({ severity: flag.severity, label: flag.label, description: clamp(flag.description, 300), action: clamp(flag.action, 320), evidence: clamp(flag.evidence ?? "", 320), responsible: flag.responsible })),
+      reminders: report.elite?.reminderPlan ?? [],
       responsibilities: report.elite.responsibilities,
       suggestions: report.elite.proactiveSuggestions.suggestions.slice(0, 4),
     },
@@ -130,7 +130,14 @@ function normalizeAi360Result(value: unknown): Ai360Result {
       resolvedPoints: asArray<string>(narrative.resolvedPoints),
       dayReads: asArray<Record<string, unknown>>(narrative.dayReads).map(day => ({ ...day, steps: asArray<string>(day.steps), attention: asArray<string>(day.attention) })),
     },
-    ticketExplanations: asArray(source.ticketExplanations),
+    ticketExplanations: asArray<Record<string, unknown>>(source.ticketExplanations).map(explanation => ({
+      ...explanation,
+      actionsDone: asArray<string>(explanation.actionsDone),
+      remaining: asArray<string>(explanation.remaining),
+      missingEvidence: asArray<string>(explanation.missingEvidence),
+      chronology: asArray(explanation.chronology),
+      evidence: asArray(explanation.evidence),
+    })),
     agencyReport,
     newInconsistencies: asArray(source.newInconsistencies),
     actions: asArray(source.actions),

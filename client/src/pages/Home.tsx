@@ -166,8 +166,8 @@ function TripUnderstandingPanel({ narrative }: { narrative: ReturnType<typeof bu
       <div><span className="fact-label">Situation opérationnelle</span><p>{narrative.operationalState}</p></div>
     </div>
     <div className="trip-understanding-columns">
-      <div><h3>Particularités à garder en tête</h3>{narrative.particularities.map(item => <p className="understanding-line" key={item}>{item}</p>)}</div>
-      <div><h3>Ce qui reste ouvert</h3>{narrative.openPoints.length ? narrative.openPoints.slice(0, 6).map(item => <p className="understanding-line attention" key={item}>{item}</p>) : <p className="understanding-line">Aucun point ouvert détecté.</p>}</div>
+      <div><h3>Particularités à garder en tête</h3>{(narrative.particularities ?? []).map(item => <p className="understanding-line" key={item}>{item}</p>)}</div>
+      <div><h3>Ce qui reste ouvert</h3>{(narrative.openPoints ?? []).length ? (narrative.openPoints ?? []).slice(0, 6).map(item => <p className="understanding-line attention" key={item}>{item}</p>) : <p className="understanding-line">Aucun point ouvert détecté.</p>}</div>
     </div>
     <details className="agency-report-details"><summary><span>Rapport agence prêt à l’emploi</span><button className="text-button" onClick={event => { event.preventDefault(); void copyAgencyReport(); }}>Copier le rapport</button></summary><div className="agency-report-copy"><b>{narrative.agencyReport.subject}</b><p>{narrative.agencyReport.body}</p></div></details>
   </section>;
@@ -206,12 +206,12 @@ function Ai360Panel({ report }: { report: AuditReport }) {
         <p>{result.tripNarrative.overview}</p>
         {(result.tripNarrative.dayReads ?? []).map(day => <div className="ai360-day-read" key={day.dayIndex}>
           <b>{day.date}</b><span> — {day.summary}</span>
-          {day.attention?.length ? <ul>{day.attention.map(attention => <li key={attention}>{attention}</li>)}</ul> : null}
+          {(day.attention ?? []).length ? <ul>{(day.attention ?? []).map(attention => <li key={attention}>{attention}</li>)}</ul> : null}
         </div>)}
       </section> : null}
       {(result?.timeline ?? []).length ? <section className="ai360-timeline">
         <h3>Chronologie</h3>
-        {result.timeline.map((item, index) => <div className="ai360-timeline-row" key={`${item.at}-${item.event}-${index}`}><b>{item.at}</b><span> · {item.branch} — {item.event} → {item.consequence}</span></div>)}
+        {(result.timeline ?? []).map((item, index) => <div className="ai360-timeline-row" key={`${item.at}-${item.event}-${index}`}><b>{item.at}</b><span> · {item.branch} — {item.event} → {item.consequence}</span></div>)}
       </section> : null}
       {result?.agencyReport ? <section className="ai360-agency-report">
         <h3>Message agence proposé</h3>
@@ -220,7 +220,7 @@ function Ai360Panel({ report }: { report: AuditReport }) {
       </section> : null}
       {(result?.responsibilities ?? []).length ? <section className="ai360-responsibilities">
         <h3>Responsabilités</h3>
-        {result.responsibilities.map(responsibility => <div className="ai360-responsibility" key={responsibility.owner}><b>{responsibility.owner}</b><ul>{(responsibility.items ?? []).map(item => <li key={item}>{item}</li>)}</ul></div>)}
+        {(result.responsibilities ?? []).map(responsibility => <div className="ai360-responsibility" key={responsibility.owner}><b>{responsibility.owner}</b><ul>{(responsibility.items ?? []).map(item => <li key={item}>{item}</li>)}</ul></div>)}
       </section> : null}
     </div> : null}
   </section>;
@@ -585,7 +585,7 @@ function TicketCard({ ticket, onOpen, onCopy }: { ticket: Ticket; onOpen: () => 
       </div>
       <p className="ticket-card-summary">{ticket.whatRemains[0] || "Aucune action restante détectée dans l’export."}</p>
       <div className="ticket-card-bottom">
-        <span className="mono">{ticket.messages.length} message{ticket.messages.length > 1 ? "s" : ""} · {ticket.attachments.length} pièce{ticket.attachments.length > 1 ? "s" : ""}</span>
+        <span className="mono">{(ticket.messages ?? []).length} message{(ticket.messages ?? []).length > 1 ? "s" : ""} · {(ticket.attachments ?? []).length} pièce{(ticket.attachments ?? []).length > 1 ? "s" : ""}</span>
         <span className="ticket-card-actions"><button className="text-button" onClick={onCopy}><FileJson size={13} />Copier JSON</button><button className="text-button" onClick={onOpen}>Ouvrir le ticket <ChevronRight size={14} /></button></span>
       </div>
     </article>
@@ -603,7 +603,7 @@ function TicketsPanel({ tickets, onOpen, onCopyAll }: { tickets: Ticket[]; onOpe
           <p className="eyebrow">Dossier vivant · traitement opérationnel</p>
           <h2>Tickets du voyage</h2>
         </div>
-        <div className="panel-heading-actions"><span className="mono">{stats.total} CAPTURÉ{stats.total > 1 ? "S" : ""}</span><button className="button button-secondary compact" onClick={onCopyAll} disabled={!tickets.length}><FileJson size={14} />Copier les tickets JSON</button></div>
+        <div className="panel-heading-actions"><span className="mono">{stats.total} CAPTURÉ{stats.total > 1 ? "S" : ""}</span><button className="button button-secondary compact" onClick={onCopyAll} disabled={!((tickets ?? []).length)}><FileJson size={14} />Copier les tickets JSON</button></div>
       </div>
       <div className="ticket-summary-grid">
         <button className={filter === "active" ? "ticket-stat active" : "ticket-stat"} onClick={() => setFilter("active")}><b>{stats.active}</b><span>Actifs / en attente</span></button>
@@ -621,8 +621,8 @@ function TicketsPanel({ tickets, onOpen, onCopyAll }: { tickets: Ticket[]; onOpe
 
 function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
   const rows = tickets.flatMap(ticket => [
-    ...ticket.statusTransitions.map((item, index) => ({ id: `${ticket.id}-status-${index}`, at: item.at, kind: "Statut", title: `${item.from || "Début"} → ${item.to}`, body: item.actor ? `Par ${item.actor}` : "Transition enregistrée", ticket: ticket.ticketNumber })),
-    ...ticket.messages.map(message => ({ id: `${ticket.id}-${message.id}`, at: message.createdAt, kind: "Message", title: message.author || "Message ticket", body: message.text, ticket: ticket.ticketNumber })),
+    ...(ticket.statusTransitions ?? []).map((item, index) => ({ id: `${ticket.id}-status-${index}`, at: item.at, kind: "Statut", title: `${item.from || "Début"} → ${item.to}`, body: item.actor ? `Par ${item.actor}` : "Transition enregistrée", ticket: ticket.ticketNumber })),
+    ...(ticket.messages ?? []).map(message => ({ id: `${ticket.id}-${message.id}`, at: message.createdAt, kind: "Message", title: message.author || "Message ticket", body: message.text, ticket: ticket.ticketNumber })),
     ...ticket.events.filter(event => event.kind !== "message").map(event => ({ id: `${ticket.id}-${event.id}`, at: event.createdAt, kind: event.kind, title: event.summary, body: event.actor ? `Par ${event.actor}` : "Événement système", ticket: ticket.ticketNumber })),
   ]).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
   return (
@@ -634,7 +634,8 @@ function TicketTimeline({ tickets }: { tickets: Ticket[] }) {
   );
 }
 
-function TicketDialog({ ticket, report, onClose }: { ticket: Ticket; report: AuditReport; onClose: () => void }) {
+function TicketDialog({ ticket: rawTicket, report, onClose }: { ticket: Ticket; report: AuditReport; onClose: () => void }) {
+  const ticket = { ...rawTicket, messages: rawTicket.messages ?? [], attachments: rawTicket.attachments ?? [], statusTransitions: rawTicket.statusTransitions ?? [] };
   const explanation = explainTicket(ticket, report);
   return <div className="raw-overlay" onClick={onClose}><section className="ticket-dialog ticket-dialog-explained" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}><div className="ticket-dialog-head"><div><p className="eyebrow">Ticket #{ticket.ticketNumber} · compréhension opérationnelle</p><h2>{explanation.subject}</h2><p>{explanation.tripElement} · {ticket.current.status} · {ticket.current.priority || "Priorité non exportée"}</p></div><button className="icon-button" onClick={onClose} aria-label="Fermer le détail ticket"><X size={17} /></button></div><div className="ticket-explanation-hero"><strong>{explanation.oneLine}</strong><span>{explanation.impactLabel}</span></div><div className="ticket-detail-grid"><div><span>Situation initiale</span><b>{explanation.initialSituation}</b></div><div><span>Situation actuelle</span><b>{explanation.currentSituation}</b></div><div><span>Cause</span><b>{explanation.rootCause}</b></div><div><span>Épisode</span><b>{ticketEpisodeLabel(ticket.episode)}</b></div></div><section className="ticket-next-action"><Flag size={16} /><div><span>Ce qu’il faut faire maintenant</span><p>{explanation.nextAction ? `${explanation.nextAction.label} · ${explanation.nextAction.owner} · ${explanation.nextAction.deadline}` : "Aucune action restante détectée."}</p><small>{explanation.nextAction?.why}</small></div></section><div className="ticket-explanation-columns"><div className="ticket-dialog-section"><p className="eyebrow">Actions déjà réalisées</p>{explanation.actionsDone.length ? explanation.actionsDone.map(item => <p className="understanding-line" key={item}>{item}</p>) : <p className="empty-line">Aucune action explicitement documentée.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Reste à faire</p>{explanation.remaining.map(item => <p className="understanding-line attention" key={item}>{item}</p>)}{explanation.missingEvidence.map(item => <small className="missing-evidence" key={item}>Preuve manquante : {item}</small>)}</div></div><div className="ticket-dialog-section"><p className="eyebrow">Chronologie du ticket</p>{explanation.chronology.length ? explanation.chronology.map(item => <article className="ticket-message" key={`${item.at}-${item.label}`}><div><b>{item.label}</b><span>{item.at}</span></div><p>{item.detail}</p></article>) : <p className="empty-line">Aucun événement structuré dans cet export.</p>}</div><div className="ticket-dialog-section"><p className="eyebrow">Preuves et pièces jointes</p>{ticket.attachments.length ? ticket.attachments.map(attachment => <div className="ticket-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.name}</span><small>{attachment.extractionStatus || attachment.kind}</small></div>) : <p className="empty-line">Aucune pièce jointe structurée.</p>}</div></section></div>;
 }
@@ -650,7 +651,7 @@ function ElitePlanPanel({ plan }: { plan: ElitePlan }) {
         </div>
         <span className="mono">{plan.summary.blocking} BLOQUANT{plan.summary.blocking > 1 ? "S" : ""} · {plan.summary.warning} À VÉRIFIER</span>
       </div>
-      {plan.flags.length ? <div className="elite-flag-list">{plan.flags.map(flag => (
+      {(plan.flags ?? []).length ? <div className="elite-flag-list">{(plan.flags ?? []).map(flag => (
         <article className={`elite-flag elite-flag-${flag.severity}`} key={flag.id}>
           <div className="elite-flag-top"><span className="ticket-chip"><Flag size={12} />{severityLabel(flag.severity)}</span><span className="mono">{flag.responsible || "Agent Elite"}</span></div>
           <h3>{flag.label}</h3>
@@ -660,9 +661,9 @@ function ElitePlanPanel({ plan }: { plan: ElitePlan }) {
         </article>
       ))}</div> : <div className="clear-state"><CheckCircle2 size={22} /><div><b>Aucun drapeau Elite généré.</b><p>Le paquet ne contient pas encore de règles Elite exportées.</p></div></div>}
       <div className="elite-ops-grid">
-        <div className="elite-ops-card"><p className="eyebrow">Rappels attendus</p>{plan.reminderPlan.map(reminder => <div className="elite-reminder-row" key={reminder.id}><b>{reminder.label}</b><span>{reminder.owner} · {reminder.timing}{reminder.count ? ` · ${reminder.count}` : ""}</span></div>)}</div>
-        <div className="elite-ops-card"><p className="eyebrow">Note Internal — OnSpot only</p><p>{plan.internalNote.required ? "À préparer pour Mayara et l’équipe opérationnelle." : "Non requise dans cet export."}</p>{plan.internalNote.placeholders.map(item => <span className="elite-placeholder" key={item}>{item}</span>)}</div>
-        <div className="elite-ops-card"><p className="eyebrow">Proactivité</p><p>{plan.proactiveSuggestions.required} suggestions minimum à ajouter.</p>{plan.proactiveSuggestions.suggestions.map(item => <span className="elite-placeholder" key={item.id}>{item.type} · {item.status === "to_add" ? "à ajouter" : item.status}</span>)}</div>
+        <div className="elite-ops-card"><p className="eyebrow">Rappels attendus</p>{(plan.reminderPlan ?? []).map(reminder => <div className="elite-reminder-row" key={reminder.id}><b>{reminder.label}</b><span>{reminder.owner} · {reminder.timing}{reminder.count ? ` · ${reminder.count}` : ""}</span></div>)}</div>
+        <div className="elite-ops-card"><p className="eyebrow">Note Internal — OnSpot only</p><p>{plan.internalNote.required ? "À préparer pour Mayara et l’équipe opérationnelle." : "Non requise dans cet export."}</p>{(plan.internalNote.placeholders ?? []).map(item => <span className="elite-placeholder" key={item}>{item}</span>)}</div>
+        <div className="elite-ops-card"><p className="eyebrow">Proactivité</p><p>{plan.proactiveSuggestions.required} suggestions minimum à ajouter.</p>{(plan.proactiveSuggestions.suggestions ?? []).map(item => <span className="elite-placeholder" key={item.id}>{item.type} · {item.status === "to_add" ? "à ajouter" : item.status}</span>)}</div>
       </div>
     </section>
   );
@@ -999,7 +1000,7 @@ export default function Home() {
       return requested;
     }
     if (report) {
-      const unresolved = report.issues.length;
+      const unresolved = (report.issues ?? []).length;
       return unresolved > 0 ? "actions" : "checks";
     }
     return "overview";
@@ -1031,7 +1032,7 @@ export default function Home() {
       travelers: nextReport.travelers,
       itinerary: nextReport.steps,
     },
-    tickets: nextReport.tickets.map(ticket => ({
+    tickets: (nextReport.tickets ?? []).map(ticket => ({
       id: ticket.id,
       ticketNumber: ticket.ticketNumber,
       episode: ticket.episode,
@@ -1047,10 +1048,10 @@ export default function Home() {
       nextAction: ticket.nextAction,
     })),
     summary: {
-      totalSteps: nextReport.steps.length,
-      totalTickets: nextReport.tickets.length,
-      resolved: nextReport.tickets.filter(ticket => ticket.episode === "resolved").length,
-      pending: nextReport.tickets.filter(ticket => ["new", "active", "waiting", "reopened", "unknown"].includes(ticket.episode)).length,
+      totalSteps: (nextReport.steps ?? []).length,
+      totalTickets: (nextReport.tickets ?? []).length,
+      resolved: (nextReport.tickets ?? []).filter(ticket => ticket.episode === "resolved").length,
+      pending: (nextReport.tickets ?? []).filter(ticket => ["new", "active", "waiting", "reopened", "unknown"].includes(ticket.episode)).length,
     },
   });
   const copyCompleteDossier = async () => {
@@ -1075,7 +1076,7 @@ export default function Home() {
       }
 
       toast.success("Dossier complet copié", {
-        description: `${report.steps.length} étape(s) d’itinéraire · ${report.tickets.length} ticket(s) inclus.`,
+        description: `${(report.steps ?? []).length} étape(s) d’itinéraire · ${(report.tickets ?? []).length} ticket(s) inclus.`,
       });
     } catch {
       toast.error("Copie impossible", {
@@ -1264,7 +1265,7 @@ export default function Home() {
   const reviewedCount =
     report?.checks.filter(item => reviewedChecks[item.id]).length ?? 0;
   const checklistPercent = report
-    ? Math.round((reviewedCount / Math.max(report.checks.length, 1)) * 100)
+    ? Math.round((reviewedCount / Math.max((report.checks ?? []).length, 1)) * 100)
     : 0;
   const openDomain = (domain: string) => {
     setSelectedDomain(domain);
@@ -1460,8 +1461,8 @@ export default function Home() {
                   <span className="fact-label">Voyageurs</span>
                   <b>
                     <Users size={14} />
-                    {report.travelers.length
-                      ? report.travelers.join(" · ")
+                    {(report.travelers ?? []).length
+                      ? (report.travelers ?? []).join(" · ")
                       : "À identifier"}
                   </b>
                 </button>
@@ -1506,13 +1507,13 @@ export default function Home() {
                       setSelectedDomain("Tout");
                     }}
                   >
-                    Analyse <span>{report.checks.length}</span>
+                    Analyse <span>{(report.checks ?? []).length}</span>
                   </button>
                   <button
                     className={tab === "tickets" ? "tab active" : "tab"}
                     onClick={() => setTab("tickets")}
                   >
-                    Tickets <span>{report.tickets.length || "·"}</span>
+                    Tickets <span>{(report.tickets ?? []).length || "·"}</span>
                   </button>
                 </div>
                 {tab === "tickets" ? <TicketsPanel tickets={report.tickets} onOpen={setSelectedTicket} onCopyAll={() => void copyTicketsJson()} /> : null}
@@ -1532,7 +1533,7 @@ export default function Home() {
                     {tripNarrative ? <TripUnderstandingPanel narrative={tripNarrative} /> : null}
                     <Ai360Panel report={report} />
                     <div className="domain-grid">
-                      {report.domains.map(domain => (
+                      {(report.domains ?? []).map(domain => (
                         <button
                           key={domain.label}
                           className="domain-card"
@@ -1562,25 +1563,25 @@ export default function Home() {
                         <span className="fact-label">Identité jointe</span>
                         <b
                           className={
-                            report.metadata.identityDocuments.length
+                            (report.metadata.identityDocuments ?? []).length
                               ? ""
                               : "amber-text"
                           }
                         >
-                          {report.metadata.identityDocuments.length
+                          {(report.metadata.identityDocuments ?? []).length
                             ? "Fichier(s) trouvé(s)"
                             : "Non prouvée"}
                         </b>
                         <small>
                           {report.metadata.identityDocuments.length
-                            ? report.metadata.identityDocuments.join(" · ")
+                            ? (report.metadata.identityDocuments ?? []).join(" · ")
                             : "Mention textuelle ignorée"}
                         </small>
                       </button>
                       <button onClick={() => openDomain("Voyageurs")}>
                         <span className="fact-label">Profil client</span>
                         <b>
-                          {report.metadata.profileNotes.length
+                          {(report.metadata.profileNotes ?? []).length
                             ? "Attention signalée"
                             : "À consulter"}
                         </b>
@@ -1671,7 +1672,7 @@ export default function Home() {
                           <p className="eyebrow">Suivi manuel de l’agent</p>
                           <h3>
                             {reviewedCount} contrôle{reviewedCount > 1 ? "s" : ""} revu
-                            {reviewedCount > 1 ? "s" : ""} sur {report.checks.length}
+                            {reviewedCount > 1 ? "s" : ""} sur {(report.checks ?? []).length}
                           </h3>
                           <p>
                             La coche confirme votre revue humaine ; elle ne
@@ -1687,16 +1688,16 @@ export default function Home() {
                         className="progress-track"
                         role="progressbar"
                         aria-valuemin={0}
-                        aria-valuemax={report.checks.length}
+                        aria-valuemax={(report.checks ?? []).length}
                         aria-valuenow={reviewedCount}
-                        aria-valuetext={`${reviewedCount} contrôles revus sur ${report.checks.length}`}
+                        aria-valuetext={`${reviewedCount} contrôles revus sur ${(report.checks ?? []).length}`}
                       >
                         <span style={{ width: `${checklistPercent}%` }} />
                       </div>
                       <div className="progress-actions">
                         <div>
                           <CheckCircle2 size={15} />
-                          <span>{report.checks.length - reviewedCount} à revoir</span>
+                          <span>{(report.checks ?? []).length - reviewedCount} à revoir</span>
                         </div>
                         {reviewedCount ? (
                           <button
@@ -1722,7 +1723,7 @@ export default function Home() {
                       >
                         Tout
                       </button>
-                      {report.domains.map(domain => (
+                      {(report.domains ?? []).map(domain => (
                         <button
                           className={
                             selectedDomain === domain.label
@@ -1853,7 +1854,7 @@ export default function Home() {
                           pièce d’identité jointe.
                         </p>
                         <div className="document-check-list">
-                          {report.documentChecks.map(item => (
+                          {(report.documentChecks ?? []).map(item => (
                             <div className="document-check-row" key={item.id}>
                               <div>
                                 <b>{item.label}</b>
@@ -1866,7 +1867,7 @@ export default function Home() {
                         <div className="document-meta">
                           <span>
                             <FileJson size={14} />
-                            {report.documentChecks.length} familles contrôlées
+                            {(report.documentChecks ?? []).length} familles contrôlées
                           </span>
                           <span>
                             <Check size={14} />
@@ -1885,14 +1886,14 @@ export default function Home() {
                         <h2>Actions à traiter</h2>
                       </div>
                       <span className="mono">
-                        {report.issues.length} SIGNALÉES · {resolved.length}{" "}
+                        {(report.issues ?? []).length} SIGNALÉES · {resolved.length}{" "}
                         TRAITÉES
                       </span>
                     </div>
                     <ElitePlanPanel plan={report.elite} />
                     <div className="issues-list">
-                      {report.issues.length ? (
-                        report.issues.map(issue => (
+                      {(report.issues ?? []).length ? (
+                        (report.issues ?? []).map(issue => (
                           <IssueCard
                             key={issue.id}
                             issue={issue}
