@@ -51,6 +51,20 @@ describe("résilience de l’appel OpenRouter", () => {
     await expect(runAi360Analysis(report, { apiKey: "key-test", maxRetriesPerAttempt: 0 })).resolves.toMatchObject({ result: { situation: "ok" } });
   });
 
+  it("envoie le contrat de sortie complet et l’instruction JSON", async () => {
+    const report = analyzeTrip(demoPayload);
+    const result = { situation: "ok", verdict: "stable", confidence: 0.8, actions: [] };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body));
+      expect(payload.response_format).toEqual({ type: "json_object" });
+      expect(JSON.stringify(payload.messages)).toContain("format JSON");
+      expect(JSON.stringify(payload.messages)).toContain("tripNarrative");
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(result) } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(runAi360Analysis(report, { apiKey: "key-test", maxRetriesPerAttempt: 0 })).resolves.toMatchObject({ result: { situation: "ok" } });
+  });
+
   it("normalise les tableaux absents de la réponse IA", async () => {
     const report = analyzeTrip(demoPayload);
     const result = { situation: "ok", verdict: "stable", confidence: 0.8 };
@@ -65,4 +79,3 @@ describe("résilience de l’appel OpenRouter", () => {
     expect(response.result.limitations).toEqual([]);
   });
 });
-

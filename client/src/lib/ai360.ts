@@ -120,9 +120,14 @@ export function parseJson(cleaned: string): Ai360Result {
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     const json = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
-    return normalizeAi360Result(JSON.parse(json));
-  } catch {
-    return normalizeAi360Result({});
+    const result = normalizeAi360Result(JSON.parse(json));
+    if (!result.situation && !result.tripNarrative?.overview && !result.actions.length) {
+      throw new Error("Réponse JSON sans contenu d’analyse exploitable.");
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof Ai360Error) throw error;
+    throw new Ai360Error("invalid-response", "OpenRouter a renvoyé une réponse JSON vide ou inexploitable.");
   }
 }
 
@@ -130,7 +135,19 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Ai360Error("missing-key", "Une clé OpenRouter est requise.");
   const model = options.model?.trim() || "openai/gpt-4o-mini";
-  const prompt = JSON.stringify(buildAiEvidencePack(report));
+  const prompt = [
+    "Analyse ce dossier de voyage pour un agent de conciergerie OnSpot.",
+    "Retourne exclusivement un objet JSON valide, sans markdown ni commentaire.",
+    "Le JSON doit contenir ces champs :",
+    "situation (string), verdict (\"stable\"|\"attention\"|\"bloquant\"), confidence (number entre 0 et 1),",
+    "newInconsistencies (string[]), actions (string[]), limitations (string[]),",
+    "tripNarrative ({ headline: string, overview: string, composition: string, particularities: string[], operationalState: string, openPoints: string[], resolvedPoints: string[], dayReads: [{ dayIndex: number, date: string, summary: string, attention: string[] }] }),",
+    "ticketExplanations ([{ ticketId: string, explanation: string, subProblems: string[] }]),",
+    "agencyReport ({ subject: string, body: string }), timeline ([{ at: string, branch: string, event: string, consequence: string }]),",
+    "responsibilities ([{ owner: string, items: string[] }]). Même si une information manque, renseigne les champs avec une chaîne ou un tableau vide.",
+    "Données du dossier :",
+    JSON.stringify(buildAiEvidencePack(report)),
+  ].join("\n");
   const maxRetries = options.maxRetriesPerAttempt ?? 1;
   const baseDelay = options.retryBaseDelayMs ?? 1000;
   let lastError: unknown;
@@ -141,7 +158,7 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
       const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu dois obligatoirement répondre au format JSON." }, { role: "user", content: prompt }], response_format: { type: "json_object" } }),
+        body: JSON.stringify({ model, messages: [{ role: "system", content: "Tu es un analyste de dossiers de voyage. Tu dois obligatoirement répondre au format JSON et respecter exactement les champs demandés par l’utilisateur." }, { role: "user", content: prompt }], response_format: { type: "json_object" } }),
       });
       if (!response.ok) {
         if (TRANSIENT_STATUSES.has(response.status) && attempt < maxRetries) continue;
