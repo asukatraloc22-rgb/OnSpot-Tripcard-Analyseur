@@ -45,6 +45,7 @@ import {
 import { extractTickets, mergeTickets, ticketStats, type Ticket } from "@/lib/tickets";
 import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
+import { validateTripPayload } from "@/lib/schemas/tripPayload";
 
 const markUrl = "/onspot-favicon.svg";
 type Tab = "overview" | "actions" | "checks" | "itinerary" | "documents" | "tickets";
@@ -1125,7 +1126,14 @@ export default function Home() {
     );
   };
   const loadPayload = (payload: Record<string, unknown>, source: string) => {
-    const next = analyzeTrip(payload);
+    const validation = validateTripPayload(payload);
+    if (!validation.ok) {
+      toast.error("JSON non conforme", {
+        description: validation.errors.join(" · "),
+      });
+      return;
+    }
+    const next = analyzeTrip(validation.data);
     setReport(next);
     setWorkspace("audit");
     setTab("overview");
