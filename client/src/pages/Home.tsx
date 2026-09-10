@@ -195,7 +195,33 @@ function Ai360Panel({ report }: { report: AuditReport }) {
     <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
     {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
     {error ? <div className="ai360-error">{error}</div> : null}
-    {result ? <div className="ai360-result"><div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div><p>{result.situation}</p>{(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3>{(result?.newInconsistencies ?? []).map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}<div><h3>Actions ordonnées</h3>{(result?.actions ?? []).map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div></div> : null}
+    {result ? <div className="ai360-result">
+      <div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div>
+      <p>{result.situation}</p>
+      {(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3>{(result?.newInconsistencies ?? []).map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}
+      <div><h3>Actions ordonnées</h3>{(result?.actions ?? []).map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div>
+      {result?.tripNarrative ? <section className="ai360-narrative">
+        <h3>{result.tripNarrative.headline}</h3>
+        <p>{result.tripNarrative.overview}</p>
+        {(result.tripNarrative.dayReads ?? []).map(day => <div className="ai360-day-read" key={day.dayIndex}>
+          <b>{day.date}</b><span> — {day.summary}</span>
+          {day.attention?.length ? <ul>{day.attention.map(attention => <li key={attention}>{attention}</li>)}</ul> : null}
+        </div>)}
+      </section> : null}
+      {(result?.timeline ?? []).length ? <section className="ai360-timeline">
+        <h3>Chronologie</h3>
+        {result.timeline.map((item, index) => <div className="ai360-timeline-row" key={`${item.at}-${item.event}-${index}`}><b>{item.at}</b><span> · {item.branch} — {item.event} → {item.consequence}</span></div>)}
+      </section> : null}
+      {result?.agencyReport ? <section className="ai360-agency-report">
+        <h3>Message agence proposé</h3>
+        <p><b>{result.agencyReport.subject}</b></p>
+        <p>{result.agencyReport.body}</p>
+      </section> : null}
+      {(result?.responsibilities ?? []).length ? <section className="ai360-responsibilities">
+        <h3>Responsabilités</h3>
+        {result.responsibilities.map(responsibility => <div className="ai360-responsibility" key={responsibility.owner}><b>{responsibility.owner}</b><ul>{(responsibility.items ?? []).map(item => <li key={item}>{item}</li>)}</ul></div>)}
+      </section> : null}
+    </div> : null}
   </section>;
 }
 
