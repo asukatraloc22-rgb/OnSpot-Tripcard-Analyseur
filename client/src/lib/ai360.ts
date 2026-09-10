@@ -141,7 +141,7 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
       const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], response_format: { type: "json_object" } }),
+        body: JSON.stringify({ model, messages: [{ role: "user", content: prompt + " Tu dois obligatoirement répondre au format JSON." }], response_format: { type: "json_object" } }),
       });
       if (!response.ok) {
         if (TRANSIENT_STATUSES.has(response.status) && attempt < maxRetries) continue;
