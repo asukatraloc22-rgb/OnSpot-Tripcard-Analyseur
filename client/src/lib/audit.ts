@@ -377,3 +377,78 @@ export function analyzeTrip(raw: Record<string, unknown>): AuditReport {
 }
 
 export const demoPayload: Record<string, unknown> = { meta: { reference: "ELT-2026-0814", name: "Sicile — famille Martin", destination: "Sicile, Italie", startDate: "2026-09-14", endDate: "2026-09-23" }, travelers: ["Claire Martin", "Julien Martin", "Léa Martin"], flights: [{ flightNumber: "AF 1186 · K4L8M2", departureDate: "2026-09-14", departureTime: "09:20", arrivalDate: "2026-09-14", arrivalTime: "11:50", location: "CDG → CTA" }, { flightNumber: "AF 1291 · K4L8M2", departureDate: "2026-09-23", departureTime: "18:45", arrivalDate: "2026-09-23", arrivalTime: "21:25", location: "PMO → CDG" }], hotels: [{ name: "Palazzo Sant’Agata", checkIn: "2026-09-14", city: "Catane" }, { name: "Masseria del Sole", checkIn: "2026-09-17", city: "Noto" }, { name: "Casa Marina", checkIn: "2026-09-20", city: "Palerme" }], activities: [{ title: "Etna au lever du jour", date: "2026-09-16", city: "Catane", supplier: "Opérateur local" }, { title: "Cours de cuisine sicilienne", date: "2026-09-19", city: "Noto", supplier: "Opérateur local" }], documents: [{ name: "Plan_de_vol_AF_Sicile.pdf", category: "flight-plan", excerpt: "Billet d’avion · PNR : K4L8M2\nAF 1186 · CDG → CTA\nDépart : 14 sept. · Heure : 09h20\nArrivée : 14 sept. · Heure : 11h50\nAF 1291 · PMO → CDG\nDépart : 23 sept. · Heure : 18h45\nArrivée : 23 sept. · Heure : 21h25", extractionStatus: "ok" }, { name: "Voucher Etna", date: "2026-09-16" }, { name: "Billet retour", date: "2026-09-23" }] };
+
+// À ajouter ou adapter dans client/src/lib/audit.ts
+
+export function extractTravelers(payload: any): string[] {
+  // 1. Priorité au tableau simple root "travelers"
+  if (Array.isArray(payload?.travelers) && payload.travelers.length > 0) {
+    const valid = payload.travelers.filter(
+      (t: unknown) => typeof t === "string" && t.trim().length > 0
+    );
+    if (valid.length > 0) return valid;
+  }
+
+  // 2. Repli sur metadata.travelerProfiles si renseigné
+  if (Array.isArray(payload?.metadata?.travelerProfiles) && payload.metadata.travelerProfiles.length > 0) {
+    const profiles = payload.metadata.travelerProfiles
+      .map((p: any) => (typeof p === "string" ? p : p?.name || p?.fullName))
+      .filter(Boolean);
+    if (profiles.length > 0) return profiles;
+  }
+
+  // 3. Sécurité : Ne JAMAIS lire payload.services ici pour éviter la pollution par les hôtels
+  return ["Voyageur Principal (Nom non extrait)"];
+}
+// === CORRECTIFS SÉCURITÉ VOYAGEURS & NORMALISATION PAYLOAD ===
+
+export function extractTravelersSafely(payload: any): string[] {
+  if (!payload) return ["Voyageur Principal"];
+  
+  // 1. Priorité absolue au tableau "travelers" de la racine du JSON
+  if (Array.isArray(payload.travelers) && payload.travelers.length > 0) {
+    const cleanNames = payload.travelers.filter(
+      (t: unknown) => typeof t === "string" && t.trim().length > 0
+    );
+    if (cleanNames.length > 0) return cleanNames;
+  }
+
+  // 2. Repli sur travelerProfiles si existant
+  if (Array.isArray(payload.metadata?.travelerProfiles) && payload.metadata.travelerProfiles.length > 0) {
+    return payload.metadata.travelerProfiles
+      .map((p: any) => (typeof p === "string" ? p : p?.name || p?.fullName))
+      .filter(Boolean);
+  }
+
+  // 3. INTERDICTION STRICTE : Ne jamais basculer sur payload.services (zone Hôtels/Services)
+  return ["Voyageur Principal (Nom non extrait)"];
+}
+
+export function normalizePayload(data: any): any {
+  if (!data || typeof data !== "object") return data;
+
+  // A. Suppression des doublons de services (activités / transferts en double)
+  if (Array.isArray(data.services)) {
+    const seen = new Set<string>();
+    data.services = data.services.filter((service: any) => {
+      const key = `${service.type}-${service.date}-${service.title}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // B. Correction des inversions de lieux (Paris vs Munich sur les vans)
+    data.services.forEach((service: any) => {
+      if ((service.type === "transfer" || service.type === "activity") && service.title && service.location) {
+        if (service.title.includes("Paris") && service.location.includes("Munich")) {
+          service.location = "Paris, France";
+        }
+      }
+    });
+  }
+
+  // C. Sécurisation directe du tableau voyageurs racine
+  data.travelers = extractTravelersSafely(data);
+
+  return data;
+}
