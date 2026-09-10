@@ -197,10 +197,10 @@ function Ai360Panel({ report }: { report: AuditReport }) {
     {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
     {error ? <div className="ai360-error">{error}</div> : null}
     {result ? <div className="ai360-result">
-      <div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result.confidence * 100)} %</span></div>
+      <div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result?.confidence ?? 0)} %</span></div>
       <p>{result.situation}</p>
-      {(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3>{(result?.newInconsistencies ?? []).map(item => <article className="ai360-item" key={`${item.title}-${item.evidence}`}><b>{item.title}</b><span>{item.severity}</span><p>{item.whyItMatters}</p><small>Preuve : {item.evidence}</small></article>)}</div> : null}
-      <div><h3>Actions ordonnées</h3>{(result?.actions ?? []).map(item => <article className="ai360-action" key={`${item.order}-${item.action}`}><b>{item.order}. {item.action}</b><span>{item.responsible} · {item.deadline}</span>{item.messageToSend ? <p>Message suggéré : {item.messageToSend}</p> : null}</article>)}</div>
+      {(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3><ul>{(result?.newInconsistencies ?? []).map((inc, i) => <li key={i}>⚠️ {inc}</li>)}</ul></div> : null}
+      <div><h3>Actions ordonnées</h3><ul>{(result?.actions || []).map((action, i) => <li key={i}>{action}</li>)}</ul></div>
       {result?.tripNarrative ? <section className="ai360-narrative">
         <h3>{result.tripNarrative.headline}</h3>
         <p>{result.tripNarrative.overview}</p>
