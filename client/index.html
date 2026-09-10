@@ -1,21 +1,3 @@
-Nous avons un bug d'exécution (TypeError: Cannot read properties of undefined (reading 'length')) lorsque la réponse de l'analyse IA est chargée dans l'interface.
-
-Objectif :
-Corriger le code front-end et la gestion des données de l'IA pour garantir que l'application ne plante jamais si un tableau est absent ou non défini.
-
-Modifications demandées :
-
-Dans le front-end (client/) :
-
-Recherche toutes les occurrences où des propriétés comme .tickets, .segments, .vouchers, .warnings, ou autres listes sont lues avec .length ou bouclées avec .map().
-
-Ajoute du Optional Chaining (?.) et des valeurs de repli (ex. dossier?.tickets?.length ?? 0 ou (dossier?.tickets || []).map(...)).
-
-Dans le traitement des réponses IA (server/ ou shared/) :
-
-Localise la fonction qui reçoit et parse le JSON provenant d'OpenRouter/LLM.
-
-Ajoute une étape de normalisation/sanitisation systématique pour s'assurer que si l'IA renvoie undefined ou null pour une clé de type liste, celle-ci soit immédiatement remplacée par un tableau vide [].<!-- TripCard ELITE — document shell. Design reminder: editorial paper interface, French operational context, symbol-first identity. -->
 <!doctype html>
 <html lang="fr">
   <head>
