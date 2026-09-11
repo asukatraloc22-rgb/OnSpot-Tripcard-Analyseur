@@ -41,4 +41,13 @@ describe("normalisation du JSON OnSpot réel", () => {
     expect(document.itinerary).toHaveLength(0);
     expect(document.meta.profileNotes.some(note => note.includes("aucune prestation détaillée"))).toBe(true);
   });
+
+  it("écarte les prestations accidentellement exportées dans travelers", () => {
+    const document = normalizeTripPayload({
+      reference: "2120026537",
+      travelers: ["Personal Shopper", "Palazzo Venezia", "Allen Karp", "Susan Karp"],
+      services: [{ type: "hotel", date: "2026-09-19", title: "Deluxe Room", location: "Milan, IT" }],
+    });
+    expect(document.meta.travelers.map(traveler => traveler.fullName)).toEqual(["Allen Karp", "Susan Karp"]);
+  });
 });

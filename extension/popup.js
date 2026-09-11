@@ -210,6 +210,14 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       return String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
     }
 
+    function isLikelyTravelerName(value) {
+      const name = cleanTravelerName(value);
+      if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+      if (/(?:hotel|hôtel|palazzo|resort|driver|chauffeur|private|luxury|car|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper)/i.test(name)) return false;
+      const words = name.split(/\s+/).filter(Boolean);
+      return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
+    }
+
     function travelerNameFromText(value) {
       const lines = String(value || '').split(/\r?\n/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
       const match = lines.join(' ').match(/\b(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+(?:\s+[A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+){1,3})/i);
@@ -251,13 +259,13 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       }
 
       const rowSelector = '[data-traveler-id], [data-passenger-id], [data-guest-id], li, article';
-      let rows = Array.from(panel.querySelectorAll(rowSelector)).filter(element => travelerNameFromText(element.innerText || ''));
-      if (!rows.length) rows = Array.from(panel.querySelectorAll('button')).filter(element => travelerNameFromText(element.innerText || ''));
+      let rows = Array.from(panel.querySelectorAll(rowSelector)).filter(element => isLikelyTravelerName(travelerNameFromText(element.innerText || '')));
+      if (!rows.length) rows = Array.from(panel.querySelectorAll('button')).filter(element => isLikelyTravelerName(travelerNameFromText(element.innerText || '')));
       const uniqueRows = [];
       const seenNames = new Set();
       for (const row of rows) {
         const name = travelerNameFromText(row.innerText || '');
-        if (!name || seenNames.has(name)) continue;
+        if (!isLikelyTravelerName(name) || seenNames.has(name)) continue;
         seenNames.add(name); uniqueRows.push({ row, name });
       }
       const profiles = [];
@@ -607,22 +615,23 @@ function serviceTypeFromSection(section) {
   return mapping[section] || 'other';
 }
 
-function extractStructuredServices(timeline, referenceText = '') {
+function extractStructuredServices(timeline, referenceText = '', forcedSection = null) {
   const lines = String(timeline || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const sectionNames = new Set(['Hôtels', 'Vols', 'Activités', 'Transferts', 'Trains', 'Locations']);
   const monthPattern = /^(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)$/i;
   const months = { jan: '01', janv: '01', févr: '02', mars: '03', avr: '04', mai: '05', juin: '06', juil: '07', août: '08', sept: '09', oct: '10', nov: '11', déc: '12' };
   const year = (String(referenceText).match(/\b20\d{2}\b/) || String(timeline).match(/\b20\d{2}\b/) || [])[0] || new Date().getUTCFullYear();
-  const services = []; let currentDate = null; let section = null;
+  const services = []; let currentDate = null; let section = forcedSection;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]; const date = line.match(monthPattern);
-    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = null; continue; }
+    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = forcedSection; continue; }
     if (sectionNames.has(line)) { section = line; continue; }
     if (!section || !currentDate || /^(Rechercher|Tableau|Trip_|Ajouter|Reminders|Notes|Services|Métadonnées|Tickets)/i.test(line)) continue;
     const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const next = hasTime ? lines[index + 2] : lines[index + 1]; const nextIsDate = monthPattern.test(next || ''); const location = nextIsDate && type === 'activity' ? 'Lieu non exporté dans la timeline' : next;
     if (!title || !location || sectionNames.has(title) || sectionNames.has(location)) continue;
     if (type === 'hotel' && !/,\s*[A-Z]{2}$/i.test(location)) continue;
-    if (['transfer', 'train', 'flight'].includes(type) && !location.includes('→')) continue;
+    if (['transfer', 'train'].includes(type) && !location.includes('→')) continue;
+    if (type === 'flight' && !location.includes('→') && !/\b[A-Z]{2}\s?\d{2,4}\b/i.test(`${title} ${location}`)) continue;
     if (title.length > 180 || location.length > 260) continue;
     services.push({ id: `${type}-${services.length + 1}`, type, date: currentDate, time: hasTime ? line : null, title: cleanText(title), location: cleanText(location), source: 'itinerary.tous', extractionConfidence: nextIsDate ? 'medium' : 'high', extractionEvidence: nextIsDate ? 'Prestation datée mais lieu non visible avant la date suivante.' : 'Date, section et détails visibles dans la timeline.' });
     index += hasTime ? (nextIsDate ? 1 : 2) : (nextIsDate ? 0 : 1);
@@ -634,7 +643,7 @@ function classifyDocument(file) {
   const filename = String(file.name || '').toLowerCase();
   const content = `${file.name}\n${file.text || ''}`.toLowerCase();
   const result = (category, confidence, evidence) => ({ category, classificationConfidence: confidence, classificationEvidence: evidence });
-  const flightText = /compagnie émettrice|numéro de billet|votre e-ticket|boarding pass|carte d.?embarquement|flight itinerary/.test(content);
+  const flightText = /compagnie émettrice|numéro de billet|votre e-ticket|boarding pass|carte d.?embarquement|flight itinerary|flight number|airline|departure|arrival|départ|arrivée|vol\s+[A-Z]{2}\s?\d{2,4}|\b[A-Z]{2}\s?\d{2,4}\b/i.test(content);
   const flightName = /(?:billet|e[-_ ]?ticket|flight|vol)[^a-z]{0,25}(?:avion|air|airlines?|dl|af|ba|lh)/.test(filename);
   if (flightText || (flightName && /(?:\b[A-Z]{2}\s?\d{2,4}\b|aéroport|airport|departure|arrivée|arrival)/i.test(file.text || ''))) return result('flight-plan', 'high', flightText ? 'Le contenu comporte un numéro de billet, une compagnie émettrice ou une preuve d’embarquement.' : 'Le nom et le contenu confirment un document aérien avec segment exploitable.');
   const identityName = /(?:^|[_\-\s])(passeport|passport|cni|carte[_\-\s]?(?:nationale[_\-\s]?)?d.?identit[eé])(?:[_\-\s.]|$)/.test(filename);
@@ -642,7 +651,7 @@ function classifyDocument(file) {
   if (identityName || identityText) return result('identity', identityName ? 'high' : 'medium', identityName ? 'Le fichier joint est explicitement nommé passeport ou CNI.' : 'Le contenu porte un identifiant propre à un document d’identité.');
   if (/(?:^|\n)\s*(?:hotel|hôtel)\s*:|type de chambre|room type|check.?in|plan repas/.test(content)) return result('hotel', 'high', 'Le contenu identifie un hôtel, une chambre ou des dates de séjour.');
   if (/pickup date|pickup time|dropoff address|limo|chauffeur|transfer|transfert|car rental|location de voiture|ferry|train/.test(content)) return result('transport', 'high', 'Le contenu identifie une prise en charge, un transport ou une location.');
-  if (/tour\/activity|tour\/?activity|restaurant reservation|activity date|excursion|reservation confirmation/.test(content)) return result('activity', 'high', 'Le contenu identifie une activité ou une réservation de restaurant.');
+  if (/tour\/activity|tour\/?activity|restaurant reservation|activity date|excursion|reservation confirmation|activité|excursion|visite guidée|guide|walking tour|private tour|food tasting/i.test(content)) return result('activity', 'high', 'Le contenu identifie une activité ou une réservation de restaurant.');
   if (/itinerary|itinéraire/.test(filename)) return result('itinerary', 'medium', 'Le nom du fichier indique un itinéraire ; sa nature de voucher doit être contrôlée.');
   return result('other', 'low', 'Aucun marqueur documentaire suffisamment spécifique n’a été trouvé.');
 }
@@ -703,7 +712,7 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const travelerNamesFromDOM = Array.isArray(pageData.travelerData?.travelerNames) ? pageData.travelerData.travelerNames : [];
   const travelerBirthdayHints = Array.isArray(pageData.travelerData?.birthdayHints) ? pageData.travelerData.birthdayHints : [];
   const travelers = Array.from(new Set([
-    ...travelerNamesFromDOM,
+    ...travelerNamesFromDOM.filter(isLikelyTravelerName),
     ...Array.from(new Set(Array.from(allText.matchAll(/\b(?:M\.|MR\.|Mme|MM\.)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)\s+([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)/g)).map((match) => `${match[1]} ${match[2]}`))),
   ]));
   const files = [
@@ -716,7 +725,9 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
     ...((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)),
     ...travelerBirthdayHints,
   ]));
-  const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
+  const serviceTabs = [['tous', null], ['hotels', 'Hôtels'], ['vols', 'Vols'], ['activites', 'Activités'], ['locations', 'Locations'], ['transferts', 'Transferts'], ['trains', 'Trains']];
+  const services = Array.from(new Map(serviceTabs.flatMap(([key, forcedSection]) => extractStructuredServices(pageData.itinerary?.[key] || '', pageData.initialSnapshot || '', forcedSection)).map(service => [`${service.type}|${service.date}|${service.time || ''}|${service.title}|${service.location}`, service])).values());
+  const serviceDates = services.map(service => service.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
   const capturedTickets = Array.from(new Map((pageData.tickets || (pageData.ticket ? [pageData.ticket] : [])).map(ticket => [ticket.id || ticket.ticketNumber, { ...ticket, attachments: (ticket.attachments || []).map((attachment) => {
     const extracted = [...pdfTexts, ...docxTexts, ...xlsxTexts].find(item => item.url === attachment.url);
     return extracted ? { ...attachment, excerpt: extracted.text.slice(0, 6000), extractionStatus: extracted.text.startsWith('[ERREUR') ? 'error' : 'ok' } : attachment;
@@ -726,7 +737,7 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [], visibleOnly: true },
-    reference, travelers, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
+    reference, travelers, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
     metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : [], travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
     tickets: capturedTickets,
