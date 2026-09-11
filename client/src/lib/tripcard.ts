@@ -39,6 +39,7 @@ const firstArray = (...values: unknown[]) => values.find(value => Array.isArray(
 const first = (...values: unknown[]) => values.find(v => v !== undefined && v !== null && String(v).trim() !== "");
 const formatDate = (value: unknown) => { if (!value) return ""; if (typeof value === "object") { const o = asObject(value); return text(o.start, o.from, o.date); } return String(value).trim().slice(0, 10); };
 const isoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+const dateShift = (value: string, amount: number) => { const date = new Date(`${value}T12:00:00Z`); if (Number.isNaN(date.getTime())) return value; date.setUTCDate(date.getUTCDate() + amount); return date.toISOString().slice(0, 10); };
 export function formatDateFr(value: string) { if (!value) return "À vérifier"; const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/); return match ? `${match[3]}/${match[2]}/${match[1]}` : value; }
 
 export function canonicalType(value: unknown) {
@@ -73,9 +74,9 @@ function dateRange(start: string, end: string) { if (!start) return []; const ou
 function extractDates(value: string) { return value.match(/20\d{2}-\d{2}-\d{2}/g) || []; }
 
 export function normalizeTripPayload(raw: unknown): TripDocument {
-  const root = asObject(raw); const trip = asObject(root.trip || root.dossier || root); const metadata = asObject(trip.metadata || root.metadata || root.meta);
+  const outer = asObject(raw); const nested = [outer.payload, outer.data, outer.tripCard, outer.tripcard].map(asObject).find(value => Object.keys(value).length > 0); const root = nested ? { ...outer, ...nested } : outer; const trip = asObject(root.trip || root.dossier || root); const metadata = asObject(trip.metadata || root.metadata || root.meta);
   const travelers = flexibleList(trip.travelers || trip.voyageurs || root.travelers).map(v => typeof v === "string" ? { name: v, fullName: v } : v);
-  const rawServices = list(firstArray(trip.itinerary, trip.services, root.itinerary, root.services, root.steps));
+  const rawServices = list(firstArray(trip.itinerary, trip.services, root.itinerary, root.services, root.steps, asObject(root.data).services));
   const grouped: AnyRecord[] = ["flights","hotels","activities","transfers","trains","carRentals","locations","ferries","boats"].flatMap(key => list(root[key]).map(item => ({ ...item, type: item.type || key })));
   const sourceItems = rawServices.length ? rawServices : grouped;
   const itinerary: ItineraryItem[] = sourceItems.map((item, index) => {
@@ -92,7 +93,9 @@ export function normalizeTripPayload(raw: unknown): TripDocument {
   const startDates = itinerary.flatMap(i => [i.date, ...extractDates(i.notes)]).filter(isoDate).sort();
   const endDates = itinerary.flatMap(i => [i.endDate, ...i.nightCoverage]).filter(isoDate).sort();
   const startDate = text(metadata.startDate, asObject(trip.dates).start, startDates[0]); const endDate = text(metadata.endDate, asObject(trip.dates).end, endDates[endDates.length - 1], startDate);
-  const destination = text(asObject(trip.destination).name, trip.destination, list(trip.destinations).map(v => typeof v === "string" ? v : text(v.name, v.label)).filter(Boolean).join(" · "), metadata.destination, Array.from(new Set(itinerary.map(i => i.city).filter(Boolean))).join(" · "), "Destination à identifier");
+  const hotels = itinerary.filter(item => item.type === "Hôtel").sort((a, b) => a.date.localeCompare(b.date));
+  hotels.forEach((hotel, index) => { const nextHotel = hotels[index + 1]?.date; const lastNight = hotel.endDate || (nextHotel ? dateShift(nextHotel, -1) : endDate); hotel.nightCoverage = dateRange(hotel.date, lastNight || hotel.date); });
+  const destination = text(asObject(trip.destination).name, trip.destination, list(trip.destinations).map(v => typeof v === "string" ? v : text(v.name, v.label)).filter(Boolean).join(" · "), metadata.destination, metadata.country, metadata.countryName, Array.from(new Set(itinerary.map(i => i.city).filter(Boolean))).join(" · "), "Destination à identifier");
   const rawVouchers = list(firstArray(trip.vouchers, trip.documents, root.vouchers, root.documents));
   const vouchers: VoucherItem[] = rawVouchers.map((item, index) => { const excerpt = text(item.text, item.excerpt, item.content); return { id: text(item.id, item.name, `voucher-${index + 1}`), name: text(item.name, item.title, item.filename, item.fileName, "Document sans nom"), kind: text(item.kind, item.mimeType, "Document"), category: text(item.category, "Non classé"), url: text(item.url, item.href, item.downloadUrl), text: excerpt, status: text(item.extractionStatus, item.status, "Présent"), extractionStatus: text(item.extractionStatus, "unknown"), sourceRefs: Array.isArray(item.sourceRefs) ? item.sourceRefs.map(String) : [], linkedServiceIds: [], detectedDates: extractDates(`${item.name || ""} ${excerpt}`), detectedNames: [], raw: item }; });
   for (const voucher of vouchers) for (const item of itinerary) if (voucher.detectedDates.includes(item.date) || voucher.text.toLowerCase().includes(item.title.toLowerCase().slice(0, 18))) { voucher.linkedServiceIds.push(item.id); item.linkedVoucherIds.push(voucher.id); item.hasProof = true; }
