@@ -46,6 +46,7 @@ import { extractTickets, mergeTickets, ticketStats, type Ticket } from "@/lib/ti
 import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 import { validateTripPayload } from "@/lib/schemas/tripPayload";
+import { countryFlag } from "@/lib/countryFlags";
 
 const markUrl = "/onspot-favicon.svg";
 type Tab = "overview" | "actions" | "checks" | "itinerary" | "documents" | "tickets";
@@ -77,37 +78,12 @@ const formatDate = (value: string) => {
     ? value
     : new Intl.DateTimeFormat("fr-FR", {
         day: "2-digit",
-        month: "short",
+        month: "2-digit",
         year: "numeric",
       })
         .format(parsed)
-        .replace(".", "");
-};
-const countryFlag = (destination: string) => {
-  const value = destination.toLocaleLowerCase("fr-FR");
-  const flags: Array<[RegExp, string]> = [
-    [/italie|sicile/, "🇮🇹"],
-    [/japon/, "🇯🇵"],
-    [/croatie/, "🇭🇷"],
-    [/bosnie/, "🇧🇦"],
-    [/états-unis|etats-unis|usa|las vegas|californie|new york|floride/, "🇺🇸"],
-    [/canada/, "🇨🇦"],
-    [/espagne/, "🇪🇸"],
-    [/portugal/, "🇵🇹"],
-    [/grèce|grece/, "🇬🇷"],
-    [/royaume-uni|angleterre/, "🇬🇧"],
-    [/thailande|thaïlande/, "🇹🇭"],
-    [/indonésie|indonesie|bali/, "🇮🇩"],
-    [/singapour/, "🇸🇬"],
-    [/émirats|emirats|dubaï|dubai/, "🇦🇪"],
-    [/maroc/, "🇲🇦"],
-    [/maurice/, "🇲🇺"],
-    [/seychelles/, "🇸🇨"],
-    [/mexique/, "🇲🇽"],
-    [/australie/, "🇦🇺"],
-    [/nouvelle-zélande|nouvelle zelande/, "🇳🇿"],
-  ];
-  return flags.find(([regex]) => regex.test(value))?.[1] ?? "🌐";
+        .replace(/\./g, "")
+        .replace(/\s/g, "/");
 };
 const domainMap: Record<string, string[]> = {
   "Méta & voyageurs": ["Dossier", "Voyageurs"],
@@ -1523,9 +1499,9 @@ export default function Home() {
                       <div>
                         <p className="eyebrow">Lecture opérationnelle</p>
                         <h2>
-                          Un constat, une preuve,
+                          Contrôle du dossier,
                           <br />
-                          <em>une décision agent.</em>
+                          <em>avant le départ.</em>
                         </h2>
                       </div>
                       <span className="mono">MOTEUR LOCAL · RÈGLES V3</span>
