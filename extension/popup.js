@@ -724,6 +724,14 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
   };
 }
 
+function isLikelyTravelerName(value) {
+  const name = String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
+  if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+  if (/(?:hotel|hôtel|palazzo|resort|driver|chauffeur|private|luxury|car|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper)/i.test(name)) return false;
+  const words = name.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
+}
+
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
   const tripCandidates = Array.from(allText.matchAll(/\bTrip\s+(\d{6,})\b/gi)).map(match => match[1]);
