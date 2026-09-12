@@ -189,7 +189,10 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
     function findTabElement(labels) {
-      const candidates = Array.from(document.querySelectorAll('button, a, [role="tab"], li, div[class*="tab" i]'));
+      const candidates = Array.from(document.querySelectorAll('[role="tab"], button, a, li, div[class*="tab" i]'));
+      const normalizedLabels = labels.map(label => label.toLowerCase());
+      const exact = candidates.find(el => { const text = (el.textContent || '').trim().toLowerCase(); return text && normalizedLabels.includes(text) && text.length <= 40; });
+      if (exact) return exact;
       for (const el of candidates) {
         const text = (el.textContent || '').trim();
         if (!text || text.length > 40) continue;
@@ -200,6 +203,27 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         }
       }
       return null;
+    }
+
+    function panelTextForTab(tab) {
+      const candidates = [];
+      const controls = tab?.getAttribute?.('aria-controls');
+      if (controls) { const controlled = document.getElementById(controls); if (controlled) candidates.push(controlled); }
+      const active = document.querySelector('[role="tabpanel"][data-state="active"], [role="tabpanel"]:not([hidden]), [role="tabpanel"].active, [role="tabpanel"].is-active');
+      if (active) candidates.push(active);
+      const closest = tab?.closest?.('[data-radix-tabs-content], [data-tab-content], .tab-content, .tabs-content, [class*="tabpanel" i], [class*="tab-panel" i]');
+      if (closest) candidates.push(closest);
+      const unique = Array.from(new Set(candidates)).filter(element => {
+        const style = window.getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden' && (element.innerText || '').trim();
+      });
+      const panel = unique.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0];
+      return (panel?.innerText || '').trim();
+    }
+
+    async function clickAndReadTab(tab, fallback = '') {
+      if (!tab) return null;
+      try { tab.scrollIntoView({ block: 'center', inline: 'nearest' }); tab.click(); await sleep(650); } catch (e) { return fallback || null; }
+      return panelTextForTab(tab) || fallback || null;
     }
 
     function activeTabElement() {
@@ -502,47 +526,38 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     const ticket = tickets[0] || null;
 
     const itinerary = {};
+    const tabDiagnostics = [];
 
     // 1) Cliquer sur l'onglet principal "Itinéraire" pour révéler ses sous-onglets
     const mainEl = findTabElement(mainTabDefs[0].labels);
     if (mainEl) {
-      try {
-        mainEl.click();
-        await sleep(450);
-        scanFilesOnCurrentDOM();
-      } catch (e) {}
-    }
+      const mainText = await clickAndReadTab(mainEl, '');
+      tabDiagnostics.push({ key: 'itineraireMain', found: true, chars: (mainText || '').length, panelScoped: Boolean(mainText) });
+      scanFilesOnCurrentDOM();
+    } else tabDiagnostics.push({ key: 'itineraireMain', found: false, chars: 0, panelScoped: false });
 
     // 2) Chercher/cliquer chaque sous-onglet, maintenant qu'ils devraient être dans le DOM
     for (const def of subTabDefs) {
       const el = findTabElement(def.labels);
       if (el) {
-        try {
-          el.click();
-          await sleep(450);
-          itinerary[def.key] = (document.body.innerText || '').trim();
-          scanFilesOnCurrentDOM();
-        } catch (e) {
-          itinerary[def.key] = null;
-        }
+        itinerary[def.key] = await clickAndReadTab(el, '');
+        tabDiagnostics.push({ key: def.key, found: true, chars: (itinerary[def.key] || '').length, panelScoped: Boolean(itinerary[def.key]) });
+        scanFilesOnCurrentDOM();
       } else {
         itinerary[def.key] = null;
+        tabDiagnostics.push({ key: def.key, found: false, chars: 0, panelScoped: false });
       }
     }
 
     // 3) Cliquer enfin sur l'onglet principal "Vouchers"
     const vouchersEl = findTabElement(vouchersTabDef.labels);
     if (vouchersEl) {
-      try {
-        vouchersEl.click();
-        await sleep(450);
-        itinerary[vouchersTabDef.key] = (document.body.innerText || '').trim();
-        scanFilesOnCurrentDOM();
-      } catch (e) {
-        itinerary[vouchersTabDef.key] = null;
-      }
+      itinerary[vouchersTabDef.key] = await clickAndReadTab(vouchersEl, '');
+      tabDiagnostics.push({ key: vouchersTabDef.key, found: true, chars: (itinerary[vouchersTabDef.key] || '').length, panelScoped: Boolean(itinerary[vouchersTabDef.key]) });
+      scanFilesOnCurrentDOM();
     } else {
       itinerary[vouchersTabDef.key] = null;
+      tabDiagnostics.push({ key: vouchersTabDef.key, found: false, chars: 0, panelScoped: false });
     }
 
     // 4) Tickets et Rappels ne sont jamais ouverts : le contrôle pré-départ ne doit pas déplacer l’agent vers ces écrans.
@@ -561,6 +576,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       ticket,
       scope,
       collectionWarning,
+      tabDiagnostics,
       pageUrl: window.location.href,
       pageTitle: document.title,
       tickets
