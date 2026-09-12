@@ -302,10 +302,12 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     const imageUrlSet = new Set();
 
     function classify(url) {
-      if (/\.pdf($|\?)/i.test(url)) pdfUrlSet.add(url);
-      else if (/\.docx($|\?)/i.test(url)) docxUrlSet.add(url);
-      else if (/\.(xlsx|xls)($|\?)/i.test(url)) xlsxUrlSet.add(url);
-      else if (/\.(png|jpe?g|webp|gif|heic)($|\?)/i.test(url)) imageUrlSet.add(url);
+      const value = String(url || '').trim();
+      if (!value || /^chrome-extension:\/\/invalid(?:\/|$)/i.test(value) || /^chrome-extension:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) return;
+      if (/\.pdf($|\?)/i.test(value)) pdfUrlSet.add(value);
+      else if (/\.docx($|\?)/i.test(value)) docxUrlSet.add(value);
+      else if (/\.(xlsx|xls)($|\?)/i.test(value)) xlsxUrlSet.add(value);
+      else if (/\.(png|jpe?g|webp|gif|heic)($|\?)/i.test(value)) imageUrlSet.add(value);
     }
 
     function scanFilesOnCurrentDOM() {
