@@ -726,7 +726,9 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
 
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
-  const tripNumber = (allText.match(/\bTrip\s+(\d{6,})\b/i) || String(pageData.pageTitle || '').match(/\b(\d{7,})\b/) || [])[1];
+  const tripCandidates = Array.from(allText.matchAll(/\bTrip\s+(\d{6,})\b/gi)).map(match => match[1]);
+  const pageCandidates = String(pageData.pageTitle || '').match(/\b\d{6,}\b/g) || [];
+  const tripNumber = [...tripCandidates, ...pageCandidates].sort((a, b) => b.length - a.length)[0];
   const reference = tripNumber ? `Trip ${tripNumber}` : (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || 'sans-reference';
   const travelerNamesFromDOM = Array.isArray(pageData.travelerData?.travelerNames) ? pageData.travelerData.travelerNames : [];
   const travelerBirthdayHints = Array.isArray(pageData.travelerData?.birthdayHints) ? pageData.travelerData.birthdayHints : [];
