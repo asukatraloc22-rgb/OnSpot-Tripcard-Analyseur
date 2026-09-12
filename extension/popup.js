@@ -710,7 +710,8 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
 
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
-  const reference = (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || (allText.match(/Trip\s+(\d{6,})/i) || [])[1] || 'sans-reference';
+  const tripNumber = (allText.match(/\bTrip\s+(\d{6,})\b/i) || String(pageData.pageTitle || '').match(/\b(\d{7,})\b/) || [])[1];
+  const reference = tripNumber ? `Trip ${tripNumber}` : (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || 'sans-reference';
   const travelerNamesFromDOM = Array.isArray(pageData.travelerData?.travelerNames) ? pageData.travelerData.travelerNames : [];
   const travelerBirthdayHints = Array.isArray(pageData.travelerData?.birthdayHints) ? pageData.travelerData.birthdayHints : [];
   const travelers = Array.from(new Set([
@@ -730,6 +731,8 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const serviceTabs = [['tous', null], ['hotels', 'Hôtels'], ['vols', 'Vols'], ['activites', 'Activités'], ['locations', 'Locations'], ['transferts', 'Transferts'], ['trains', 'Trains']];
   const services = Array.from(new Map(serviceTabs.flatMap(([key, forcedSection]) => extractStructuredServices(pageData.itinerary?.[key] || '', pageData.initialSnapshot || '', forcedSection)).map(service => [`${service.type}|${service.date}|${service.time || ''}|${service.title}|${service.location}`, service])).values());
   const serviceDates = services.map(service => service.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+  const cleanTravelerNames = Array.from(new Set(travelers.filter((name) => !services.some((service) => { const candidate = String(name).toLowerCase().trim(); const title = String(service.title || '').toLowerCase().trim(); const location = String(service.location || '').toLowerCase().trim(); return candidate === title || candidate === location || (candidate.length > 8 && (title.includes(candidate) || location.includes(candidate))); }))));
+  const cleanTravelerProfiles = (Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : []).filter((profile) => cleanTravelerNames.includes(profile.name));
   const capturedTickets = Array.from(new Map((pageData.tickets || (pageData.ticket ? [pageData.ticket] : [])).map(ticket => [ticket.id || ticket.ticketNumber, { ...ticket, attachments: (ticket.attachments || []).map((attachment) => {
     const extracted = [...pdfTexts, ...docxTexts, ...xlsxTexts].find(item => item.url === attachment.url);
     return extracted ? { ...attachment, excerpt: extracted.text.slice(0, 6000), extractionStatus: extracted.text.startsWith('[ERREUR') ? 'error' : 'ok' } : attachment;
@@ -739,8 +742,8 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [], visibleOnly: true },
-    reference, travelers, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
-    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : [], travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
+    reference, travelers: cleanTravelerNames, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: cleanTravelerProfiles, travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
     tickets: capturedTickets,
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
