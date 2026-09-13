@@ -66,6 +66,8 @@ const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
+const AUDIT_SYSTEM_PROMPT = "Tu es un agent de voyage senior et controleur qualite final d un voyage haut de gamme, avant depart. Tu as l oeil d un professionnel qui a vu des centaines de dossiers et qui sait precisement ou se cachent les erreurs couteuses. On te fournit un dossier deja partiellement structure (itineraire, controles locaux, tickets de suivi) : ce sont des indices de travail, pas une verite absolue a valider aveuglement. GRILLE DE DETECTION SYSTEMATIQUE : 1) coherence temporelle (chevauchements, trous de programme sur une journee entiere, nuits sans hebergement identifie, transfert programme avant l arrivee du vol associe) ; 2) coherence geographique (rupture de continuite entre deux lieux consecutifs sans transport identifie) ; 3) coherence documentaire (prestation mentionnee sans preuve documentaire correspondante, ou l inverse) ; 4) completude par type de prestation (PNR incomplet, reference hotel manquante, reconfirmation demandee mais non planifiee) ; 5) coherence du nombre de voyageurs face aux places, chambres ou sieges reserves ; 6) documents d identite : presence ou absence signalee par voyageur, jamais de jugement sur le contenu du document lui-meme. REGLES DE RIGUEUR IMPERATIVES : ne qualifie jamais d incoherence une simple absence d information plausible mais non fournie, classe-la plutot comme point a verifier avec l agence. Ne signale un conflit que s il est objectivable et precisement citable. N invente jamais une anomalie pour remplir une categorie vide : un dossier propre doit produire une liste vide, pas une liste artificielle. Chaque anomalie relevee doit citer precisement les deux elements compares. Reponds uniquement en francais, et uniquement au format JSON demande par le message utilisateur, sans texte ni commentaire autour.";
+
 export function buildAiEvidencePack(report: AuditReport) {
   return {
     dossier: {
@@ -130,7 +132,9 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
   const apiKey = options.apiKey.trim();
   if (!apiKey) throw new Ai360Error("missing-key", "Une clé OpenRouter est requise.");
   const model = options.model?.trim() || "openai/gpt-4o-mini";
-  const prompt = JSON.stringify(buildAiEvidencePack(report));
+  const evidence = JSON.stringify(buildAiEvidencePack(report));
+  const outputSchema = "{\"tripNarrative\":{\"headline\":\"\",\"overview\":\"\",\"composition\":\"\",\"particularities\":[],\"operationalState\":\"\",\"openPoints\":[],\"resolvedPoints\":[],\"dayReads\":[{\"dayIndex\":0,\"date\":\"\",\"summary\":\"\",\"attention\":[]}]},\"ticketExplanations\":[{\"ticketId\":\"\",\"explanation\":\"\",\"subProblems\":[]}],\"agencyReport\":{\"subject\":\"\",\"body\":\"\"},\"situation\":\"\",\"verdict\":\"stable|attention|bloquant\",\"newInconsistencies\":[],\"actions\":[],\"timeline\":[{\"at\":\"\",\"branch\":\"\",\"event\":\"\",\"consequence\":\"\"}],\"responsibilities\":[{\"owner\":\"\",\"items\":[]}],\"confidence\":0,\"limitations\":[]}";
+  const userMessage = "Voici le dossier a analyser (JSON) : " + evidence + " Reponds uniquement avec un JSON valide au format exact suivant, sans texte autour : " + outputSchema;
   const maxRetries = options.maxRetriesPerAttempt ?? 1;
   const baseDelay = options.retryBaseDelayMs ?? 1000;
   let lastError: unknown;
@@ -141,7 +145,15 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
       const response = await fetch(OPENROUTER_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: prompt + " Tu dois obligatoirement répondre au format JSON." }], response_format: { type: "json_object" } }),
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: AUDIT_SYSTEM_PROMPT },
+            { role: "user", content: userMessage },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+        }),
       });
       if (!response.ok) {
         if (TRANSIENT_STATUSES.has(response.status) && attempt < maxRetries) continue;
@@ -159,7 +171,7 @@ export async function runAi360Analysis(report: AuditReport, options: Ai360Option
       const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
       const content = data.choices?.[0]?.message?.content;
       if (!content) throw new Ai360Error("invalid-response", "OpenRouter n’a renvoyé aucune analyse exploitable.");
-      return { result: parseJson(content), model, estimatedInputChars: prompt.length };
+      return { result: parseJson(content), model, estimatedInputChars: evidence.length };
     } catch (error) {
       lastError = error;
       if (error instanceof Ai360Error) {
