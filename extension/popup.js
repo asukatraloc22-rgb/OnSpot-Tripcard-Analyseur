@@ -733,7 +733,10 @@ function isLikelyTravelerName(value) {
 }
 
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
-  const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
+  const itineraryValues = Object.values(pageData.itinerary || {}).filter(Boolean);
+  const detailedItineraryCaptured = itineraryValues.some(value => String(value).trim().length > 0);
+  const fallbackItinerary = detailedItineraryCaptured ? pageData.itinerary : { ...(pageData.itinerary || {}), tous: pageData.initialSnapshot || '' };
+  const allText = [pageData.initialSnapshot, ...Object.values(fallbackItinerary).filter(Boolean)].join('\n\n');
   const tripCandidates = Array.from(allText.matchAll(/\bTrip\s+(\d{6,})\b/gi)).map(match => match[1]);
   const pageCandidates = String(pageData.pageTitle || '').match(/\b\d{6,}\b/g) || [];
   const tripNumber = [...tripCandidates, ...pageCandidates].sort((a, b) => b.length - a.length)[0];
@@ -755,7 +758,9 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
     ...travelerBirthdayHints,
   ]));
   const serviceTabs = [['tous', null], ['hotels', 'Hôtels'], ['vols', 'Vols'], ['activites', 'Activités'], ['locations', 'Locations'], ['transferts', 'Transferts'], ['trains', 'Trains']];
-  const services = Array.from(new Map(serviceTabs.flatMap(([key, forcedSection]) => extractStructuredServices(pageData.itinerary?.[key] || '', pageData.initialSnapshot || '', forcedSection)).map(service => [`${service.type}|${service.date}|${service.time || ''}|${service.title}|${service.location}`, service])).values());
+  const directServices = serviceTabs.flatMap(([key, forcedSection]) => extractStructuredServices(fallbackItinerary?.[key] || '', pageData.initialSnapshot || '', forcedSection));
+  const sidebarServices = detailedItineraryCaptured ? [] : extractStructuredServices(pageData.initialSnapshot || '', pageData.initialSnapshot || '', null).map(service => ({ ...service, source: 'initialSnapshot.sidebar', extractionConfidence: 'medium', extractionEvidence: 'Résumé visible dans le bandeau ou panneau latéral ; onglets détaillés non capturés.' }));
+  const services = Array.from(new Map([...directServices, ...sidebarServices].map(service => [`${service.type}|${service.date}|${service.time || ''}|${service.title}|${service.location}`, service])).values());
   const serviceDates = services.map(service => service.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
   const cleanTravelerNames = Array.from(new Set(travelers.filter((name) => !services.some((service) => { const candidate = String(name).toLowerCase().trim(); const title = String(service.title || '').toLowerCase().trim(); const location = String(service.location || '').toLowerCase().trim(); return candidate === title || candidate === location || (candidate.length > 8 && (title.includes(candidate) || location.includes(candidate))); }))));
   const cleanTravelerProfiles = (Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : []).filter((profile) => cleanTravelerNames.includes(profile.name));
@@ -767,14 +772,14 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const elitePlan = buildEliteOperationalPlan({ allText: `${allText}\n${ticketCorpus}`, files, services, tickets: capturedTickets });
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
-    collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [], visibleOnly: true },
+    collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning || !detailedItineraryCaptured ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: Array.from(new Set([pageData.collectionWarning, !detailedItineraryCaptured ? 'Les onglets détaillés de l’itinéraire n’ont pas été capturés ; les prestations ont été structurées depuis le bandeau visible. Refaire une capture complète pour obtenir les horaires et détails.' : null, detailedItineraryCaptured && !services.length ? 'Les onglets d’itinéraire ont été lus mais aucune prestation structurée n’a été reconnue ; vérifier les diagnostics DOM.' : null].filter(Boolean))), visibleOnly: true },
     reference, travelers: cleanTravelerNames, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
     metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: cleanTravelerProfiles, travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
     tickets: capturedTickets,
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
     documentCoverage: { flightPlans: files.filter((file) => file.category === 'flight-plan').length, identities: files.filter((file) => file.category === 'identity').length, hotels: files.filter((file) => file.category === 'hotel').length, transports: files.filter((file) => file.category === 'transport').length, activities: files.filter((file) => file.category === 'activity').length, unclassified: files.filter((file) => file.category === 'other').length },
-    itinerary: pageData.itinerary, vouchersSummary: buildVouchersSummaryText({ pageData, pdfTexts, docxTexts, xlsxTexts })
+    itinerary: fallbackItinerary, vouchersSummary: buildVouchersSummaryText({ pageData: { ...pageData, itinerary: fallbackItinerary }, pdfTexts, docxTexts, xlsxTexts })
   };
 }
 
