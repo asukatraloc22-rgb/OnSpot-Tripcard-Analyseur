@@ -60,8 +60,8 @@ export class Ai360Error extends Error {
   }
 }
 
-const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
-const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+export const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+export const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];

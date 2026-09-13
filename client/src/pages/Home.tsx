@@ -44,6 +44,7 @@ import {
 } from "@/lib/audit";
 import { extractTickets, mergeTickets, ticketStats, type Ticket } from "@/lib/tickets";
 import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
+import { runItineraryBuild, type BuiltItinerary } from "@/lib/aiItinerary";
 import { buildTripNarrative, explainTicket } from "@/lib/explanations";
 import { validateTripPayload } from "@/lib/schemas/tripPayload";
 
@@ -180,6 +181,10 @@ function Ai360Panel({ report }: { report: AuditReport }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [inputChars, setInputChars] = useState(0);
+  const [itinerary, setItinerary] = useState<BuiltItinerary | null>(null);
+  const [itineraryBusy, setItineraryBusy] = useState(false);
+  const [itineraryError, setItineraryError] = useState("");
+  const [itineraryChars, setItineraryChars] = useState(0);
   const run = async () => {
     setBusy(true); setError("");
     try {
@@ -190,12 +195,25 @@ function Ai360Panel({ report }: { report: AuditReport }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Analyse IA impossible."); }
     finally { setBusy(false); }
   };
+  const runItinerary = async () => {
+    setItineraryBusy(true); setItineraryError("");
+    try {
+      localStorage.setItem("tripcard:openrouter-api-key", apiKey.trim());
+      localStorage.setItem("tripcard:openrouter-model", model.trim());
+      const response = await runItineraryBuild(report, { apiKey, model });
+      setItinerary(response.result); setItineraryChars(response.estimatedInputChars);
+    } catch (cause) { setItineraryError(cause instanceof Error ? cause.message : "Reconstruction impossible."); }
+    finally { setItineraryBusy(false); }
+  };
   return <section className="ai360-panel">
     <div className="panel-heading"><div><p className="eyebrow">Copilote à la demande · preuves compactes</p><h2>Analyse IA 360°</h2></div><Sparkles size={22} /></div>
     <p className="checks-intro">Les contrôles locaux passent en premier. L’IA n’est appelée que lorsque vous le demandez et reçoit un paquet condensé, pas tous les vouchers bruts.</p>
-    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button></div>
+    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button><button className="button button-secondary compact" onClick={runItinerary} disabled={itineraryBusy || !apiKey.trim()}>{itineraryBusy ? "Reconstruction…" : "🧭 Reconstruire l’itinéraire"}</button></div>
     {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
     {error ? <div className="ai360-error">{error}</div> : null}
+    {itineraryChars ? <p className="ai360-meta">Itinéraire reconstruit à partir d’environ {itineraryChars.toLocaleString("fr-FR")} caractères de données brutes.</p> : null}
+    {itineraryError ? <div className="ai360-error">{itineraryError}</div> : null}
+    {itinerary ? <div className="ai360-result"><h3>{itinerary.destination} · {itinerary.period}</h3>{itinerary.days.map((day, index) => <div key={index} className="ai360-verdict"><strong>{day.label}</strong><span>{day.events.length} prestation(s)</span></div>)}</div> : null}
     {result ? <div className="ai360-result">
       <div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result?.confidence ?? 0)} %</span></div>
       <p>{result.situation}</p>
