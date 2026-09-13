@@ -1,26 +1,11 @@
 import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardPaste, FileJson, Inbox, ListChecks, MapPin, Plus, RefreshCw, Sparkles, Ticket, Upload, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
-import {
-  analyzeTrip,
-  demoPayload,
-  normalizeReport,
-  type AuditCheck,
-  type AuditIssue,
-  type AuditReminder,
-  type AuditReport,
-  type AuditStatus,
-  type DocumentCheck,
-  type EliteFlag,
-  type ElitePlan,
-  type FlightDetail,
-  type TripStep,
-} from "@/lib/audit";
-import { extractTickets, mergeTickets, ticketStats, type Ticket } from "@/lib/tickets";
-import { runAi360Analysis, type Ai360Result } from "@/lib/ai360";
-import { runItineraryBuild, type BuiltItinerary } from "@/lib/aiItinerary";
-import { buildTripNarrative, explainTicket } from "@/lib/explanations";
-import { validateTripPayload } from "@/lib/schemas/tripPayload";
+import { audit360, buildLocalItinerary, type Audit360, type BuiltItinerary, OpenRouterError } from "@/lib/openrouter";
+import { buildTripSummary, buildVoucherSummary, formatDateFr, normalizeTripPayload, typeIcon, type TicketItem, type TripDocument } from "@/lib/tripcard";
+import { countryFlag } from "@/lib/countryFlags";
+import { auditCounts, runLocalAudit, type LocalFinding } from "@/lib/tripAudit";
+import { buildReminders, type Reminder } from "@/lib/reminders";
 
 const modelKey = "tripcard:openrouter-model";
 const apiKey = "tripcard:openrouter-api-key";
@@ -37,74 +22,9 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`status-pill ${status === "blocking" ? "status-critical" : status === "attention" ? "status-warning" : "status-ok"}`}><span className="status-dot" />{label}</span>;
 }
 
-function Ai360Panel({ report }: { report: AuditReport }) {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("tripcard:openrouter-api-key") ?? "");
-  const [model, setModel] = useState(() => localStorage.getItem("tripcard:openrouter-model") ?? "openai/gpt-4o-mini");
-  const [result, setResult] = useState<Ai360Result | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [inputChars, setInputChars] = useState(0);
-  const [itinerary, setItinerary] = useState<BuiltItinerary | null>(null);
-  const [itineraryBusy, setItineraryBusy] = useState(false);
-  const [itineraryError, setItineraryError] = useState("");
-  const [itineraryChars, setItineraryChars] = useState(0);
-  const run = async () => {
-    setBusy(true); setError("");
-    try {
-      localStorage.setItem("tripcard:openrouter-api-key", apiKey.trim());
-      localStorage.setItem("tripcard:openrouter-model", model.trim());
-      const response = await runAi360Analysis(report, { apiKey, model });
-      setResult(response.result); setInputChars(response.estimatedInputChars);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Analyse IA impossible."); }
-    finally { setBusy(false); }
-  };
-  const runItinerary = async () => {
-    setItineraryBusy(true); setItineraryError("");
-    try {
-      localStorage.setItem("tripcard:openrouter-api-key", apiKey.trim());
-      localStorage.setItem("tripcard:openrouter-model", model.trim());
-      const response = await runItineraryBuild(report, { apiKey, model });
-      setItinerary(response.result); setItineraryChars(response.estimatedInputChars);
-    } catch (cause) { setItineraryError(cause instanceof Error ? cause.message : "Reconstruction impossible."); }
-    finally { setItineraryBusy(false); }
-  };
-  return <section className="ai360-panel">
-    <div className="panel-heading"><div><p className="eyebrow">Copilote à la demande · preuves compactes</p><h2>Analyse IA 360°</h2></div><Sparkles size={22} /></div>
-    <p className="checks-intro">Les contrôles locaux passent en premier. L’IA n’est appelée que lorsque vous le demandez et reçoit un paquet condensé, pas tous les vouchers bruts.</p>
-    <div className="ai360-controls"><input type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder="Clé OpenRouter locale" aria-label="Clé OpenRouter" /><input value={model} onChange={event => setModel(event.target.value)} placeholder="openai/gpt-4o-mini" aria-label="Modèle OpenRouter" /><button className="button button-primary compact" onClick={run} disabled={busy || !apiKey.trim()}>{busy ? "Analyse en cours…" : "Analyser le dossier"}</button><button className="button button-secondary compact" onClick={runItinerary} disabled={itineraryBusy || !apiKey.trim()}>{itineraryBusy ? "Reconstruction…" : "🧭 Reconstruire l’itinéraire"}</button></div>
-    {inputChars ? <p className="ai360-meta">Paquet envoyé : environ {inputChars.toLocaleString("fr-FR")} caractères · modèle {model}</p> : null}
-    {error ? <div className="ai360-error">{error}</div> : null}
-    {itineraryChars ? <p className="ai360-meta">Itinéraire reconstruit à partir d’environ {itineraryChars.toLocaleString("fr-FR")} caractères de données brutes.</p> : null}
-    {itineraryError ? <div className="ai360-error">{itineraryError}</div> : null}
-    {itinerary ? <div className="ai360-result"><h3>{itinerary.destination} · {itinerary.period}</h3>{itinerary.days.map((day, index) => <div key={index} className="ai360-verdict"><strong>{day.label}</strong><span>{day.events.length} prestation(s)</span></div>)}</div> : null}
-    {result ? <div className="ai360-result">
-      <div className="ai360-verdict"><strong>{result.verdict === "bloquant" ? "Bloquant" : result.verdict === "attention" ? "À surveiller" : "Situation stable"}</strong><span>Confiance {Math.round(result?.confidence ?? 0)} %</span></div>
-      <p>{result.situation}</p>
-      {(result?.newInconsistencies ?? []).length ? <div><h3>Nouvelles incohérences</h3><ul>{(result?.newInconsistencies ?? []).map((inc, i) => <li key={i}>⚠️ {inc}</li>)}</ul></div> : null}
-      <div><h3>Actions ordonnées</h3><ul>{(result?.actions || []).map((action, i) => <li key={i}>{action}</li>)}</ul></div>
-      {result?.tripNarrative ? <section className="ai360-narrative">
-        <h3>{result.tripNarrative.headline}</h3>
-        <p>{result.tripNarrative.overview}</p>
-        {(result.tripNarrative.dayReads ?? []).map(day => <div className="ai360-day-read" key={day.dayIndex}>
-          <b>{day.date}</b><span> — {day.summary}</span>
-          {(day.attention ?? []).length ? <ul>{(day.attention ?? []).map(attention => <li key={attention}>{attention}</li>)}</ul> : null}
-        </div>)}
-      </section> : null}
-      {(result?.timeline ?? []).length ? <section className="ai360-timeline">
-        <h3>Chronologie</h3>
-        {(result.timeline ?? []).map((item, index) => <div className="ai360-timeline-row" key={`${item.at}-${item.event}-${index}`}><b>{item.at}</b><span> · {item.branch} — {item.event} → {item.consequence}</span></div>)}
-      </section> : null}
-      {result?.agencyReport ? <section className="ai360-agency-report">
-        <h3>Message agence proposé</h3>
-        <p><b>{result.agencyReport.subject}</b></p>
-        <p>{result.agencyReport.body}</p>
-      </section> : null}
-      {(result?.responsibilities ?? []).length ? <section className="ai360-responsibilities">
-        <h3>Responsabilités</h3>
-        {(result.responsibilities ?? []).map(responsibility => <div className="ai360-responsibility" key={responsibility.owner}><b>{responsibility.owner}</b><ul>{(responsibility.items ?? []).map(item => <li key={item}>{item}</li>)}</ul></div>)}
-      </section> : null}
-    </div> : null}
-  </section>;
+function Sidebar({ tab, setTab, document }: { tab: Tab; setTab: (tab: Tab) => void; document: TripDocument | null }) {
+  const items: Array<[Tab, string, string]> = [["overview", "Contrôle en cours", "01"], ["itinerary", "Itinéraire du dossier", "02"], ["reminders", "Reminders / vouchers", "03"], ["tickets", "Tickets", String(document?.tickets.length ?? 0).padStart(2, "0")], ["actions", "Actions à faire", "05"]];
+  return <aside className="sidebar"><div className="brand"><img src="/onspot-favicon.svg" alt="OnSpot" /><div><span className="brand-name">TripCard</span><span className="brand-tier">ELITE</span></div></div><div className="sidebar-caption">POSTE DE CONTRÔLE<br /><span>ONSPOT TRAVEL SOLUTIONS</span></div><nav className="side-nav">{items.map(([value, label, count]) => <button key={value} className={`side-nav-item ${tab === value ? "active" : ""}`} onClick={() => setTab(value)}><span>{label}</span><span className="nav-count">{count}</span></button>)}</nav><div className="sidebar-footer"><div className="connection-mark"><span />Mode local actif</div><p>Les contrôles restent dans le navigateur. L’IA part uniquement à la demande.</p><div className="agent-chip"><span className="avatar">P</span><div><b>Patrick</b><small>AGENT ELITE</small></div></div></div></aside>;
 }
 
 function EmptyState({ onDemo, onFile }: { onDemo: () => void; onFile: () => void }) {
