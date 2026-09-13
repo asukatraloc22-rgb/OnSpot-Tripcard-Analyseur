@@ -8,8 +8,8 @@ const execFileAsync = promisify(execFile);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const source = join(root, "extension");
 const releaseRoot = join(root, "release");
-const staging = join(releaseRoot, "onspot-audit-assistant-v2.1.0");
-const archivePath = join(releaseRoot, "onspot-audit-assistant-v2.1.0.zip");
+const staging = join(releaseRoot, "onspot-audit-assistant-v2.2.0");
+const archivePath = join(releaseRoot, "onspot-audit-assistant-v2.2.0.zip");
 
 await rm(staging, { recursive: true, force: true });
 await mkdir(releaseRoot, { recursive: true });

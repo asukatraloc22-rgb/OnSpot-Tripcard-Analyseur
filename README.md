@@ -1,43 +1,45 @@
 # TripCard Analyzer — TripCard ELITE
 
-TripCard Analyzer est l’outil interne de contrôle amont des dossiers de voyage OnSpot Travel Solutions. Il transforme le JSON produit par l’extension **OnSpot Audit Assistant** en une lecture opérationnelle : identité du voyage, dates, destination, étapes, documents présents et points d’attention.
+TripCard Analyzer est le poste de contrôle OnSpot Travel qui transforme le JSON produit par l’extension **OnSpot Audit Assistant** en dossier exploitable. La refonte conserve l’identité visuelle **Liquid Glass OnSpot Travel** et l’appel direct OpenRouter en mode test, mais simplifie entièrement la structure applicative autour du flux métier.
 
-## Utilisation immédiate
+## Flux fonctionnel
 
-L’application fonctionne en front-end statique. Elle ne nécessite aucune clé API, aucun compte fournisseur et n’envoie pas le dossier importé à un serveur dans cette V1. Ouvrez l’application, puis utilisez **Importer un fichier JSON** ou **Coller depuis le presse-papiers**. Le bouton **Voir un dossier de démonstration** permet de tester l’interface sans données réelles.
+1. Importer un fichier JSON ou coller le JSON de l’extension.
+2. Auto-remplir les métadonnées : référence, période, destination, agence, voyageurs et identifiant.
+3. Normaliser les prestations de toutes les collections usuelles : vols, hôtels, activités, transferts, trains, locations, ferries et services génériques.
+4. Afficher et éditer le résumé des vouchers et des documents.
+5. Ajouter des tickets au fur et à mesure et conserver leur statut, priorité, catégorie, messages et récapitulatif.
+6. Appeler OpenRouter une première fois pour **construire l’itinéraire** jour par jour.
+7. Appeler OpenRouter une deuxième fois, indépendamment, pour **l’analyse 360°** : description du voyage, problèmes, suggestions, rappels et actions.
+8. Consulter les vues Résumé, Itinéraire, Vouchers, Tickets et Actions dans un dashboard unique.
 
-Après import, l’application affiche une synthèse, un fil d’itinéraire, un registre des anomalies et une vue des documents/vouchers. Les points peuvent être marqués comme traités dans le navigateur. Le JSON source reste consultable via l’icône dédiée.
+## Compatibilité JSON
 
-## Architecture V1
+L’adaptateur accepte le contrat structuré de l’extension (`trip`, `collection`, `tickets`, `documents`, `itinerary`) ainsi que les exports plats courants (`meta`, `travelers`, `flights`, `hotels`, `activities`, `transfers`, `trains`, `documents`). Les champs inconnus sont conservés dans `raw` afin de ne pas perdre d’information métier. Le schéma de référence reste [dossier-vivant.schema.json](./dossier-vivant.schema.json).
 
-| Brique | Rôle | Dépendance obligatoire |
-| --- | --- | --- |
-| Extension OnSpot Audit Assistant | Extraction et préparation du dossier JSON | Oui, pour les données réelles |
-| TripCard Analyzer | Normalisation, lecture et contrôles locaux | Non |
-| Contrôles déterministes | Dates, voyageurs, étapes, hébergements, transferts, documents et doublons de date | Non |
-| Analyse IA | Prévue comme couche optionnelle, après validation du socle | Non |
+## Architecture simple
 
-Le moteur local accepte plusieurs noms de collections courants (`flights`, `hotels`, `transfers`, `activities`, `documents`, `vouchers`, etc.) afin de rester compatible avec l’export établi de l’extension. Les règles produisent des signaux de contrôle, mais ne remplacent pas la vérification métier de l’agent ELITE.
+| Fichier | Responsabilité |
+| --- | --- |
+| `client/src/pages/Home.tsx` | Interface, onglets et orchestration des actions opérateur |
+| `client/src/lib/tripcard.ts` | Adaptation du JSON, métadonnées, prestations, vouchers et tickets |
+| `client/src/lib/openrouter.ts` | Deux appels OpenRouter JSON indépendants |
+| `client/src/index.css` | Identité visuelle Liquid Glass et composants de contrôle |
+| `extension/` | Extension de collecte OnSpot, conservée comme source JSON |
+
+## OpenRouter en phase de test
+
+La clé est saisie dans le champ **Clé OpenRouter locale** du dashboard et enregistrée dans `localStorage` pour éviter de la ressaisir pendant les tests. Aucun fichier `.env` n’est requis ou livré. Cette méthode est adaptée au prototype, mais elle ne constitue pas un stockage sécurisé pour la production.
+
+Le premier appel utilise les données JSON, les prestations et le résumé des vouchers. Le second utilise le JSON, les vouchers, les tickets, les notes opérateur et l’itinéraire construit lorsqu’il existe. Les deux résultats sont JSON et affichés comme assistance : une validation humaine reste nécessaire.
 
 ## Développement
 
 ```bash
 pnpm install
 pnpm dev
-```
-
-La compilation de production se vérifie avec :
-
-```bash
-pnpm run build
 pnpm run check
+pnpm run build
 ```
 
-## Déploiement
-
-Le projet est conçu pour un hébergement statique gratuit. Il peut être connecté à GitHub puis importé dans Vercel avec la commande de build `pnpm run build` et le répertoire de sortie généré par Vite. Aucune variable secrète n’est nécessaire pour la V1.
-
-## Étapes prévues après cette V1
-
-La prochaine itération devra valider l’export JSON réel sur plusieurs longueurs de séjour, renforcer les contrôles de cohérence entre dates et vouchers, ajouter une checklist H-24 exploitable et, seulement si nécessaire, proposer une couche IA optionnelle avec fragmentation des payloads et repli robuste. L’objectif est de conserver un mode local utile même si une API distante est indisponible.
-
+Le fichier `client/public/tripcard-sample.json` permet de tester le flux sans export réel.

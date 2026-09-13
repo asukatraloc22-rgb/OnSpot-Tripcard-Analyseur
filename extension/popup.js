@@ -189,7 +189,10 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
     function findTabElement(labels) {
-      const candidates = Array.from(document.querySelectorAll('button, a, [role="tab"], li, div[class*="tab" i]'));
+      const candidates = Array.from(document.querySelectorAll('[role="tab"], button, a, li, div[class*="tab" i]'));
+      const normalizedLabels = labels.map(label => label.toLowerCase());
+      const exact = candidates.find(el => { const text = (el.textContent || '').trim().toLowerCase(); return text && normalizedLabels.includes(text) && text.length <= 40; });
+      if (exact) return exact;
       for (const el of candidates) {
         const text = (el.textContent || '').trim();
         if (!text || text.length > 40) continue;
@@ -202,12 +205,41 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       return null;
     }
 
+    function panelTextForTab(tab) {
+      const candidates = [];
+      const controls = tab?.getAttribute?.('aria-controls');
+      if (controls) { const controlled = document.getElementById(controls); if (controlled) candidates.push(controlled); }
+      const active = document.querySelector('[role="tabpanel"][data-state="active"], [role="tabpanel"]:not([hidden]), [role="tabpanel"].active, [role="tabpanel"].is-active');
+      if (active) candidates.push(active);
+      const closest = tab?.closest?.('[data-radix-tabs-content], [data-tab-content], .tab-content, .tabs-content, [class*="tabpanel" i], [class*="tab-panel" i]');
+      if (closest) candidates.push(closest);
+      const unique = Array.from(new Set(candidates)).filter(element => {
+        const style = window.getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden' && (element.innerText || '').trim();
+      });
+      const panel = unique.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0];
+      return (panel?.innerText || '').trim();
+    }
+
+    async function clickAndReadTab(tab, fallback = '') {
+      if (!tab) return null;
+      try { tab.scrollIntoView({ block: 'center', inline: 'nearest' }); tab.click(); await sleep(650); } catch (e) { return fallback || null; }
+      return panelTextForTab(tab) || fallback || null;
+    }
+
     function activeTabElement() {
       return document.querySelector('[role="tab"][aria-selected="true"], [role="tab"].active, [role="tab"].is-active, button.active, button.is-active') || null;
     }
 
     function cleanTravelerName(value) {
       return String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
+    }
+
+    function isLikelyTravelerName(value) {
+      const name = cleanTravelerName(value);
+      if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+      if (/(?:hotel|hôtel|palazzo|resort|driver|chauffeur|private|luxury|car|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper)/i.test(name)) return false;
+      const words = name.split(/\s+/).filter(Boolean);
+      return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
     }
 
     function travelerNameFromText(value) {
@@ -251,13 +283,13 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       }
 
       const rowSelector = '[data-traveler-id], [data-passenger-id], [data-guest-id], li, article';
-      let rows = Array.from(panel.querySelectorAll(rowSelector)).filter(element => travelerNameFromText(element.innerText || ''));
-      if (!rows.length) rows = Array.from(panel.querySelectorAll('button')).filter(element => travelerNameFromText(element.innerText || ''));
+      let rows = Array.from(panel.querySelectorAll(rowSelector)).filter(element => isLikelyTravelerName(travelerNameFromText(element.innerText || '')));
+      if (!rows.length) rows = Array.from(panel.querySelectorAll('button')).filter(element => isLikelyTravelerName(travelerNameFromText(element.innerText || '')));
       const uniqueRows = [];
       const seenNames = new Set();
       for (const row of rows) {
         const name = travelerNameFromText(row.innerText || '');
-        if (!name || seenNames.has(name)) continue;
+        if (!isLikelyTravelerName(name) || seenNames.has(name)) continue;
         seenNames.add(name); uniqueRows.push({ row, name });
       }
       const profiles = [];
@@ -294,10 +326,12 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     const imageUrlSet = new Set();
 
     function classify(url) {
-      if (/\.pdf($|\?)/i.test(url)) pdfUrlSet.add(url);
-      else if (/\.docx($|\?)/i.test(url)) docxUrlSet.add(url);
-      else if (/\.(xlsx|xls)($|\?)/i.test(url)) xlsxUrlSet.add(url);
-      else if (/\.(png|jpe?g|webp|gif|heic)($|\?)/i.test(url)) imageUrlSet.add(url);
+      const value = String(url || '').trim();
+      if (!value || /^chrome-extension:\/\/invalid(?:\/|$)/i.test(value) || /^chrome-extension:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) return;
+      if (/\.pdf($|\?)/i.test(value)) pdfUrlSet.add(value);
+      else if (/\.docx($|\?)/i.test(value)) docxUrlSet.add(value);
+      else if (/\.(xlsx|xls)($|\?)/i.test(value)) xlsxUrlSet.add(value);
+      else if (/\.(png|jpe?g|webp|gif|heic)($|\?)/i.test(value)) imageUrlSet.add(value);
     }
 
     function scanFilesOnCurrentDOM() {
@@ -492,47 +526,38 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     const ticket = tickets[0] || null;
 
     const itinerary = {};
+    const tabDiagnostics = [];
 
     // 1) Cliquer sur l'onglet principal "Itinéraire" pour révéler ses sous-onglets
     const mainEl = findTabElement(mainTabDefs[0].labels);
     if (mainEl) {
-      try {
-        mainEl.click();
-        await sleep(450);
-        scanFilesOnCurrentDOM();
-      } catch (e) {}
-    }
+      const mainText = await clickAndReadTab(mainEl, '');
+      tabDiagnostics.push({ key: 'itineraireMain', found: true, chars: (mainText || '').length, panelScoped: Boolean(mainText) });
+      scanFilesOnCurrentDOM();
+    } else tabDiagnostics.push({ key: 'itineraireMain', found: false, chars: 0, panelScoped: false });
 
     // 2) Chercher/cliquer chaque sous-onglet, maintenant qu'ils devraient être dans le DOM
     for (const def of subTabDefs) {
       const el = findTabElement(def.labels);
       if (el) {
-        try {
-          el.click();
-          await sleep(450);
-          itinerary[def.key] = (document.body.innerText || '').trim();
-          scanFilesOnCurrentDOM();
-        } catch (e) {
-          itinerary[def.key] = null;
-        }
+        itinerary[def.key] = await clickAndReadTab(el, '');
+        tabDiagnostics.push({ key: def.key, found: true, chars: (itinerary[def.key] || '').length, panelScoped: Boolean(itinerary[def.key]) });
+        scanFilesOnCurrentDOM();
       } else {
         itinerary[def.key] = null;
+        tabDiagnostics.push({ key: def.key, found: false, chars: 0, panelScoped: false });
       }
     }
 
     // 3) Cliquer enfin sur l'onglet principal "Vouchers"
     const vouchersEl = findTabElement(vouchersTabDef.labels);
     if (vouchersEl) {
-      try {
-        vouchersEl.click();
-        await sleep(450);
-        itinerary[vouchersTabDef.key] = (document.body.innerText || '').trim();
-        scanFilesOnCurrentDOM();
-      } catch (e) {
-        itinerary[vouchersTabDef.key] = null;
-      }
+      itinerary[vouchersTabDef.key] = await clickAndReadTab(vouchersEl, '');
+      tabDiagnostics.push({ key: vouchersTabDef.key, found: true, chars: (itinerary[vouchersTabDef.key] || '').length, panelScoped: Boolean(itinerary[vouchersTabDef.key]) });
+      scanFilesOnCurrentDOM();
     } else {
       itinerary[vouchersTabDef.key] = null;
+      tabDiagnostics.push({ key: vouchersTabDef.key, found: false, chars: 0, panelScoped: false });
     }
 
     // 4) Tickets et Rappels ne sont jamais ouverts : le contrôle pré-départ ne doit pas déplacer l’agent vers ces écrans.
@@ -551,6 +576,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       ticket,
       scope,
       collectionWarning,
+      tabDiagnostics,
       pageUrl: window.location.href,
       pageTitle: document.title,
       tickets
@@ -607,22 +633,23 @@ function serviceTypeFromSection(section) {
   return mapping[section] || 'other';
 }
 
-function extractStructuredServices(timeline, referenceText = '') {
+function extractStructuredServices(timeline, referenceText = '', forcedSection = null) {
   const lines = String(timeline || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const sectionNames = new Set(['Hôtels', 'Vols', 'Activités', 'Transferts', 'Trains', 'Locations']);
   const monthPattern = /^(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)$/i;
   const months = { jan: '01', janv: '01', févr: '02', mars: '03', avr: '04', mai: '05', juin: '06', juil: '07', août: '08', sept: '09', oct: '10', nov: '11', déc: '12' };
   const year = (String(referenceText).match(/\b20\d{2}\b/) || String(timeline).match(/\b20\d{2}\b/) || [])[0] || new Date().getUTCFullYear();
-  const services = []; let currentDate = null; let section = null;
+  const services = []; let currentDate = null; let section = forcedSection;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]; const date = line.match(monthPattern);
-    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = null; continue; }
+    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = forcedSection; continue; }
     if (sectionNames.has(line)) { section = line; continue; }
     if (!section || !currentDate || /^(Rechercher|Tableau|Trip_|Ajouter|Reminders|Notes|Services|Métadonnées|Tickets)/i.test(line)) continue;
     const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const next = hasTime ? lines[index + 2] : lines[index + 1]; const nextIsDate = monthPattern.test(next || ''); const location = nextIsDate && type === 'activity' ? 'Lieu non exporté dans la timeline' : next;
     if (!title || !location || sectionNames.has(title) || sectionNames.has(location)) continue;
     if (type === 'hotel' && !/,\s*[A-Z]{2}$/i.test(location)) continue;
-    if (['transfer', 'train', 'flight'].includes(type) && !location.includes('→')) continue;
+    if (['transfer', 'train'].includes(type) && !location.includes('→')) continue;
+    if (type === 'flight' && !location.includes('→') && !/\b[A-Z]{2}\s?\d{2,4}\b/i.test(`${title} ${location}`)) continue;
     if (title.length > 180 || location.length > 260) continue;
     services.push({ id: `${type}-${services.length + 1}`, type, date: currentDate, time: hasTime ? line : null, title: cleanText(title), location: cleanText(location), source: 'itinerary.tous', extractionConfidence: nextIsDate ? 'medium' : 'high', extractionEvidence: nextIsDate ? 'Prestation datée mais lieu non visible avant la date suivante.' : 'Date, section et détails visibles dans la timeline.' });
     index += hasTime ? (nextIsDate ? 1 : 2) : (nextIsDate ? 0 : 1);
@@ -634,7 +661,7 @@ function classifyDocument(file) {
   const filename = String(file.name || '').toLowerCase();
   const content = `${file.name}\n${file.text || ''}`.toLowerCase();
   const result = (category, confidence, evidence) => ({ category, classificationConfidence: confidence, classificationEvidence: evidence });
-  const flightText = /compagnie émettrice|numéro de billet|votre e-ticket|boarding pass|carte d.?embarquement|flight itinerary/.test(content);
+  const flightText = /compagnie émettrice|numéro de billet|votre e-ticket|boarding pass|carte d.?embarquement|flight itinerary|flight number|airline|departure|arrival|départ|arrivée|vol\s+[A-Z]{2}\s?\d{2,4}|\b[A-Z]{2}\s?\d{2,4}\b/i.test(content);
   const flightName = /(?:billet|e[-_ ]?ticket|flight|vol)[^a-z]{0,25}(?:avion|air|airlines?|dl|af|ba|lh)/.test(filename);
   if (flightText || (flightName && /(?:\b[A-Z]{2}\s?\d{2,4}\b|aéroport|airport|departure|arrivée|arrival)/i.test(file.text || ''))) return result('flight-plan', 'high', flightText ? 'Le contenu comporte un numéro de billet, une compagnie émettrice ou une preuve d’embarquement.' : 'Le nom et le contenu confirment un document aérien avec segment exploitable.');
   const identityName = /(?:^|[_\-\s])(passeport|passport|cni|carte[_\-\s]?(?:nationale[_\-\s]?)?d.?identit[eé])(?:[_\-\s.]|$)/.test(filename);
@@ -642,7 +669,7 @@ function classifyDocument(file) {
   if (identityName || identityText) return result('identity', identityName ? 'high' : 'medium', identityName ? 'Le fichier joint est explicitement nommé passeport ou CNI.' : 'Le contenu porte un identifiant propre à un document d’identité.');
   if (/(?:^|\n)\s*(?:hotel|hôtel)\s*:|type de chambre|room type|check.?in|plan repas/.test(content)) return result('hotel', 'high', 'Le contenu identifie un hôtel, une chambre ou des dates de séjour.');
   if (/pickup date|pickup time|dropoff address|limo|chauffeur|transfer|transfert|car rental|location de voiture|ferry|train/.test(content)) return result('transport', 'high', 'Le contenu identifie une prise en charge, un transport ou une location.');
-  if (/tour\/activity|tour\/?activity|restaurant reservation|activity date|excursion|reservation confirmation/.test(content)) return result('activity', 'high', 'Le contenu identifie une activité ou une réservation de restaurant.');
+  if (/tour\/activity|tour\/?activity|restaurant reservation|activity date|excursion|reservation confirmation|activité|excursion|visite guidée|guide|walking tour|private tour|food tasting/i.test(content)) return result('activity', 'high', 'Le contenu identifie une activité ou une réservation de restaurant.');
   if (/itinerary|itinéraire/.test(filename)) return result('itinerary', 'medium', 'Le nom du fichier indique un itinéraire ; sa nature de voucher doit être contrôlée.');
   return result('other', 'low', 'Aucun marqueur documentaire suffisamment spécifique n’a été trouvé.');
 }
@@ -697,13 +724,24 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
   };
 }
 
+function isLikelyTravelerName(value) {
+  const name = String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
+  if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+  if (/(?:hotel|hôtel|palazzo|resort|driver|chauffeur|private|luxury|car|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper)/i.test(name)) return false;
+  const words = name.split(/\s+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
+}
+
 function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const allText = [pageData.initialSnapshot, ...Object.values(pageData.itinerary || {}).filter(Boolean)].join('\n\n');
-  const reference = (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || (allText.match(/Trip\s+(\d{6,})/i) || [])[1] || 'sans-reference';
+  const tripCandidates = Array.from(allText.matchAll(/\bTrip\s+(\d{6,})\b/gi)).map(match => match[1]);
+  const pageCandidates = String(pageData.pageTitle || '').match(/\b\d{6,}\b/g) || [];
+  const tripNumber = [...tripCandidates, ...pageCandidates].sort((a, b) => b.length - a.length)[0];
+  const reference = tripNumber ? `Trip ${tripNumber}` : (allText.match(/Référence de réservation\s+([^\n]+)/i) || [])[1]?.trim() || 'sans-reference';
   const travelerNamesFromDOM = Array.isArray(pageData.travelerData?.travelerNames) ? pageData.travelerData.travelerNames : [];
   const travelerBirthdayHints = Array.isArray(pageData.travelerData?.birthdayHints) ? pageData.travelerData.birthdayHints : [];
   const travelers = Array.from(new Set([
-    ...travelerNamesFromDOM,
+    ...travelerNamesFromDOM.filter(isLikelyTravelerName),
     ...Array.from(new Set(Array.from(allText.matchAll(/\b(?:M\.|MR\.|Mme|MM\.)\s*([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)\s+([A-ZÀ-ÿ][A-Za-zÀ-ÿ'’-]+)/g)).map((match) => `${match[1]} ${match[2]}`))),
   ]));
   const files = [
@@ -716,7 +754,11 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
     ...((allText.match(/(?:VIP|Exigeant|anniversaire|birthday|allergie|mobilité réduite)[^\n]*/gi) || []).map(cleanText)),
     ...travelerBirthdayHints,
   ]));
-  const services = extractStructuredServices(pageData.itinerary?.tous || '', pageData.initialSnapshot || '');
+  const serviceTabs = [['tous', null], ['hotels', 'Hôtels'], ['vols', 'Vols'], ['activites', 'Activités'], ['locations', 'Locations'], ['transferts', 'Transferts'], ['trains', 'Trains']];
+  const services = Array.from(new Map(serviceTabs.flatMap(([key, forcedSection]) => extractStructuredServices(pageData.itinerary?.[key] || '', pageData.initialSnapshot || '', forcedSection)).map(service => [`${service.type}|${service.date}|${service.time || ''}|${service.title}|${service.location}`, service])).values());
+  const serviceDates = services.map(service => service.date).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+  const cleanTravelerNames = Array.from(new Set(travelers.filter((name) => !services.some((service) => { const candidate = String(name).toLowerCase().trim(); const title = String(service.title || '').toLowerCase().trim(); const location = String(service.location || '').toLowerCase().trim(); return candidate === title || candidate === location || (candidate.length > 8 && (title.includes(candidate) || location.includes(candidate))); }))));
+  const cleanTravelerProfiles = (Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : []).filter((profile) => cleanTravelerNames.includes(profile.name));
   const capturedTickets = Array.from(new Map((pageData.tickets || (pageData.ticket ? [pageData.ticket] : [])).map(ticket => [ticket.id || ticket.ticketNumber, { ...ticket, attachments: (ticket.attachments || []).map((attachment) => {
     const extracted = [...pdfTexts, ...docxTexts, ...xlsxTexts].find(item => item.url === attachment.url);
     return extracted ? { ...attachment, excerpt: extracted.text.slice(0, 6000), extractionStatus: extracted.text.startsWith('[ERREUR') ? 'error' : 'ok' } : attachment;
@@ -726,8 +768,8 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
     collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: pageData.collectionWarning ? [pageData.collectionWarning] : [], visibleOnly: true },
-    reference, travelers, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
-    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: Array.isArray(pageData.travelerData?.travelerProfiles) ? pageData.travelerData.travelerProfiles : [], travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
+    reference, travelers: cleanTravelerNames, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
+    metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: cleanTravelerProfiles, travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
     tickets: capturedTickets,
     services, documents: files.map(({ text, ...file }) => ({ ...file, extractionStatus: text.startsWith('[ERREUR') ? 'error' : 'ok', excerpt: text.slice(0, 1500) })),
