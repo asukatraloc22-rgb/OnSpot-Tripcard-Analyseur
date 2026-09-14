@@ -50,4 +50,15 @@ describe("normalisation du JSON OnSpot réel", () => {
     });
     expect(document.meta.travelers.map(traveler => traveler.fullName)).toEqual(["Allen Karp", "Susan Karp"]);
   });
+
+  it("remplace l’année placeholder 2000 du bandeau par l’année de capture", () => {
+    const document = normalizeTripPayload({
+      generatedAt: "2026-09-14T08:00:00.000Z",
+      country: "Italie",
+      dates: { start: "21 sept.", end: "14 oct." },
+      travelers: ["Gilles Bezannier", "Simone Martin"],
+      services: [{ type: "hotel", date: "2000-09-21", title: "HOTEL SAN PAOLO", location: "Palerme, IT" }],
+    });
+    expect(document.itinerary[0].date).toBe("2026-09-21");
+  });
 });
