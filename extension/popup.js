@@ -638,7 +638,7 @@ function extractStructuredServices(timeline, referenceText = '', forcedSection =
   const sectionNames = new Set(['Hôtels', 'Vols', 'Activités', 'Transferts', 'Trains', 'Locations']);
   const monthPattern = /^(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)$/i;
   const months = { jan: '01', janv: '01', févr: '02', mars: '03', avr: '04', mai: '05', juin: '06', juil: '07', août: '08', sept: '09', oct: '10', nov: '11', déc: '12' };
-  const year = (String(referenceText).match(/\b20\d{2}\b/) || String(timeline).match(/\b20\d{2}\b/) || [])[0] || new Date().getUTCFullYear();
+  const yearPattern = /(?<!\b[A-Z]{2,3}\s)\b20\d{2}\b/; const year = (String(referenceText).match(yearPattern) || String(timeline).match(yearPattern) || [])[0] || new Date().getUTCFullYear();
   const services = []; let currentDate = null; let section = forcedSection;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]; const date = line.match(monthPattern);
