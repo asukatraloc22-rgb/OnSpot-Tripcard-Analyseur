@@ -79,7 +79,7 @@ function enrichServiceTitles(items: ItineraryItem[], vouchers: VoucherItem[]) {
   const corpus = vouchers.map(voucher => voucher.text).join("\n");
   const hotelMatches = Array.from(corpus.matchAll(/DU\s+(\d{1,2})\s+AU\s+(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept(?:embre)?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)\s+(?:20\d{2}\s+)?((?:HÔTEL|HOTEL)\s+[A-Z0-9À-ÿ'’ -]+?)(?=\s+REGION\b)/gi));
   for (const item of items) {
-    const genericTitle = !item.title || /^(?:1\s*[×x]|hôtel|hotel|prestation sans titre|lieu à vérifier)$/i.test(item.title.trim());
+    const genericTitle = !item.title || /^(?:1\s*[×x]|hôtel|hotel|prestation sans titre|lieu à vérifier)$/i.test(item.title.trim()) || /^(?:standard|superior|deluxe|premium|classic|double|twin|single|king|queen|family|suite|chambre|room|villa)\b/i.test(item.title.trim());
     if (item.type === "Hôtel" && genericTitle) {
       const match = hotelMatches.find(candidate => { const start = formatDate(`${candidate[1]} ${candidate[3]}`, new Date(`${item.date}T12:00:00Z`).getUTCFullYear()); return start === item.date || item.location.toLowerCase().includes((candidate[4] || "").toLowerCase().split(/\s+/).pop() || "___"); });
       if (match?.[4]) { item.title = match[4].replace(/\s+/g, " ").trim(); item.displayTitle = item.title; item.originalTitle = item.title; }
