@@ -16,7 +16,7 @@ REGLES DE CONTENU PAR TYPE D'EVENEMENT, à respecter strictement dans les champs
 - Location voiture : title le nom du loueur ; subtitle indique BSP, Flexible, ou "(non précisé)" si le statut n'est pas trouvé ; reference la référence de location ; location le lieu de prise en charge.
 - Ferry : même principe que Transfert (prestataire, trajet, heure).
 
-Le titre ne doit jamais être seulement la catégorie générique de la prestation. Toutes les dates au format ISO strict YYYY-MM-DD, jamais DD/MM/YYYY ni texte libre. Donnée absente = (à vérifier), ne l'invente jamais.
+Le titre ne doit jamais être seulement la catégorie générique de la prestation. Toutes les dates au format ISO strict YYYY-MM-DD, jamais DD/MM/YYYY ni texte libre. Donnée absente = (à vérifier), ne l'invente jamais. REGLE ANNEE PRIORITAIRE : si un document, voucher ou billet mentionne explicitement une année a 4 chiffres pour une date du sejour, cette annee prouvee prime TOUJOURS sur toute deduction ou supposition. Ne suppose jamais que le voyage a lieu l'annee suivante uniquement parce qu'un en-tete ne montre que jour et mois : cherche d'abord une annee explicite ailleurs dans les donnees fournies avant de deduire quoi que ce soit.
 
 detectedTypes doit couvrir obligatoirement Vol, Hôtel, Activité, Transfert, Train, Location voiture, Ferry, même à 0 occurrence : quand count vaut 0, evidence doit être une phrase complète et directement affichable au format "Aucun/Aucune [type] identifié(e) dans les données fournies", jamais une phrase vague.
 
@@ -30,6 +30,8 @@ GRILLE DE DETECTION SYSTEMATIQUE, a balayer entierement pour chaque dossier :
 4. Completude par type de prestation : vol sans PNR complet, hotel sans reference de reservation, activite ou transfert avec instruction de reconfirmation mais aucun rappel prevu.
 5. Coherence voyageurs : nombre de places, chambres ou sieges reserves inferieur au nombre de voyageurs declare.
 6. Documents d identite : presence ou absence signalee de passeport ou CNI par voyageur, jamais de jugement sur le contenu du document lui-meme.
+7. Regimes alimentaires et allergies : lis attentivement la negation avant de signaler quoi que ce soit. Une mention explicite d'absence ("pas d'allergie", "aucune allergie signalee", "sans regime particulier") n'est JAMAIS une alerte, c'est une information rassurante a classer en green si mentionnee. Ne cree une alerte allergie/regime que si une allergie ou un regime est explicitement declare comme present.
+8. Annee des dates : si les vouchers, billets ou documents mentionnent une annee explicite pour une date du sejour, cette annee prime toujours sur l'annee affichee dans l'itineraire de reference construit precedemment. Un ecart d'annee entre l'itineraire et un voucher n'est un vrai NO_GO que si le voucher ET une autre source independante confirment la meme annee differente ; sinon classe-le en orange a verifier, jamais en conflit critique automatique.
 
 REGLES DE RIGUEUR IMPERATIVES :
 - Ne qualifie jamais d incoherence une simple absence d information plausible mais non fournie : classe-la comme point a verifier avec l agence, pas comme anomalie.
