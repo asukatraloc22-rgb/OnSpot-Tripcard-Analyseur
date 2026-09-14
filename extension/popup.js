@@ -638,11 +638,11 @@ function extractStructuredServices(timeline, referenceText = '', forcedSection =
   const sectionNames = new Set(['Hôtels', 'Vols', 'Activités', 'Transferts', 'Trains', 'Locations']);
   const monthPattern = /^(\d{1,2})\s+(janv?\.?|févr?\.?|mars|avr(?:il)?\.?|mai|juin|juil?\.?|août|sept?\.?|oct(?:obre)?\.?|nov(?:embre)?\.?|déc(?:embre)?)$/i;
   const months = { jan: '01', janv: '01', févr: '02', mars: '03', avr: '04', mai: '05', juin: '06', juil: '07', août: '08', sept: '09', oct: '10', nov: '11', déc: '12' };
-  const yearPattern = /(?<!\b[A-Z]{2,3}\s)\b20\d{2}\b/; const year = (String(referenceText).match(yearPattern) || String(timeline).match(yearPattern) || [])[0] || new Date().getUTCFullYear();
-  const services = []; let currentDate = null; let section = forcedSection;
+  const yearPattern = /(?<!\b[A-Z]{2,3}\s)\b20\d{2}\b/; const yearMatch = String(referenceText).match(yearPattern) || String(timeline).match(yearPattern); let inferredYear = Number(yearMatch?.[0]) || new Date().getUTCFullYear();
+  const services = []; let currentDate = null; let section = forcedSection; let previousMonth = null;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]; const date = line.match(monthPattern);
-    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; currentDate = month ? `${year}-${month}-${date[1].padStart(2, '0')}` : null; section = forcedSection; continue; }
+    if (date) { const key = date[2].replace('.', '').slice(0, 4).toLowerCase(); const month = months[key] || months[key.slice(0, 3)]; const monthNumber = Number(month || 0); if (monthNumber && previousMonth !== null && monthNumber < previousMonth) inferredYear += 1; previousMonth = monthNumber || previousMonth; currentDate = month ? `${inferredYear}-${month}-${date[1].padStart(2, '0')}` : null; section = forcedSection; continue; }
     if (sectionNames.has(line)) { section = line; continue; }
     if (!section || !currentDate || /^(Rechercher|Tableau|Trip_|Ajouter|Reminders|Notes|Services|Métadonnées|Tickets)/i.test(line)) continue;
     const type = serviceTypeFromSection(section); const hasTime = /^\d{1,2}:\d{2}$/.test(line); const title = hasTime ? lines[index + 1] : line; const next = hasTime ? lines[index + 2] : lines[index + 1]; const nextIsDate = monthPattern.test(next || ''); const location = nextIsDate && type === 'activity' ? 'Lieu non exporté dans la timeline' : next;
