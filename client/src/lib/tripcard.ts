@@ -43,8 +43,10 @@ const isLikelyTraveler = (value: string) => { const normalized = value.replace(/
 const dateShift = (value: string, amount: number) => { const date = new Date(`${value}T12:00:00Z`); if (Number.isNaN(date.getTime())) return value; date.setUTCDate(date.getUTCDate() + amount); return date.toISOString().slice(0, 10); };
 export function formatDateFr(value: string) { const valid = isoDate(value); if (!valid) return "À vérifier"; const match = valid.match(/^(\d{4})-(\d{2})-(\d{2})$/); return match ? `${match[3]}/${match[2]}/${match[1]}` : "À vérifier"; }
 
+const stripAccents = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
 export function canonicalType(value: unknown) {
-  const normalized = text(value).toLowerCase().replace(/[_-]/g, " ");
+  const normalized = stripAccents(text(value).toLowerCase()).replace(/[_-]/g, " ");
   if (/flight|vol|avion/.test(normalized)) return "Vol";
   if (/hotel|hébergement|accommodation|lodging/.test(normalized)) return "Hôtel";
   if (/transfer|transfert|navette|chauffeur/.test(normalized)) return "Transfert";
@@ -56,7 +58,7 @@ export function canonicalType(value: unknown) {
 }
 
 export function typeIcon(value: unknown) {
-  const normalized = text(value).toLowerCase();
+  const normalized = stripAccents(text(value).toLowerCase());
   if (/flight|vol|avion/.test(normalized)) return "✈️";
   if (/hotel|hébergement|accommodation/.test(normalized)) return "🏨";
   if (/transfer|transfert|navette|chauffeur/.test(normalized)) return "🚐";
