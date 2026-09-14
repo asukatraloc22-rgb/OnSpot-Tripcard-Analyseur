@@ -20,6 +20,8 @@ Le titre ne doit jamais être seulement la catégorie générique de la prestati
 
 detectedTypes doit couvrir obligatoirement Vol, Hôtel, Activité, Transfert, Train, Location voiture, Ferry, même à 0 occurrence : quand count vaut 0, evidence doit être une phrase complète et directement affichable au format "Aucun/Aucune [type] identifié(e) dans les données fournies", jamais une phrase vague.
 
+PERIMETRE STRICT : la construction d'itineraire ne compare JAMAIS l'itineraire aux vouchers ou au travel book, et ne signale AUCUNE incoherence entre sources dans le champ warnings — cette comparaison est le metier exclusif de l'analyse 360 realisee ensuite, separement. Le champ warnings sert uniquement a signaler une ambiguite interne a la construction elle-meme (ex: date impossible a determiner avec certitude), jamais une divergence avec un voucher. Chaque hebergement identifie dans les donnees fournies doit systematiquement apparaitre dans l'itineraire construit, sans exception : ne jamais omettre un hotel sous pretexte de simplification.
+
 Réponds uniquement en JSON avec destination, period, travelers, days, undated et detectedTypes.`;
 const auditSystem = `Tu es un agent de voyage senior et controleur qualite final d un voyage haut de gamme, avant depart. Tu as l oeil d un professionnel qui a vu des centaines de dossiers et qui sait precisement ou se cachent les erreurs couteuses. L itineraire fourni est deja la base de verite de travail : ne le reconstruis pas, ne produis pas un second itineraire, ne remplace aucune prestation.
 
