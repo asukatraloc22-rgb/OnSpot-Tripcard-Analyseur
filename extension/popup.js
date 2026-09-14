@@ -237,7 +237,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function isLikelyTravelerName(value) {
       const name = cleanTravelerName(value);
       if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
-      if (/(?:hotel|hôtel|palazzo|resort|driver|chauffeur|private|luxury|car|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper)/i.test(name)) return false;
+      if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
       const words = name.split(/\s+/).filter(Boolean);
       return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
     }
