@@ -7,7 +7,7 @@ const manifest = JSON.parse(await readFile(join(root, "extension/manifest.json")
 const popup = await readFile(join(root, "extension/popup.js"), "utf8");
 const fixture = JSON.parse(await readFile(join(root, "test/fixtures/ticket-100574-living-dossier.json"), "utf8"));
 
-const requiredScopes = ["trip_only", "current_ticket", "trip_and_active_tickets", "selected_tickets", "all_trip_tickets", "section_tickets"];
+const requiredScopes = ["trip_only", "trip_and_all_tickets"];
 const requiredEliteKeys = ["flags", "reminderPlan", "internalNote", "proactiveSuggestions", "responsibilities"];
 const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
@@ -30,4 +30,4 @@ if (failures.length) {
   console.error(failures.map(message => `FAIL: ${message}`).join("\n"));
   process.exit(1);
 }
-console.log(`Extension contract valid: ${requiredScopes.length} scopes · ${requiredEliteKeys.length} Elite sections · fixture ticket OK`);
+console.log(`Extension contract valid: ${requiredScopes.length} extraction modes · ${requiredEliteKeys.length} Elite sections · fixture ticket OK`);

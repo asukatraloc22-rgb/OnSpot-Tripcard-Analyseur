@@ -93,15 +93,20 @@ function enrichServiceTitles(items: ItineraryItem[], vouchers: VoucherItem[]) {
 export function normalizeTripPayload(raw: unknown): TripDocument {
   const outer = asObject(raw); const nested = [outer.payload, outer.data, outer.tripCard, outer.tripcard].map(asObject).find(value => Object.keys(value).length > 0); const root = nested ? { ...outer, ...nested } : outer; const trip = asObject(root.trip || root.dossier || root); const metadata = asObject(trip.metadata || root.metadata || root.meta);
   const travelers = flexibleList(trip.travelers || trip.voyageurs || root.travelers).map(v => typeof v === "string" ? { name: v, fullName: v } : v).filter(v => isLikelyTraveler(text(v.fullName, v.name))).map(v => ({ ...v, name: text(v.name, v.fullName), fullName: text(v.fullName, v.name) }));
-  const yearHint = Number(text(root.generatedAt, root.createdAt).slice(0, 4)) || new Date().getUTCFullYear();
-  const rootDates = asObject(root.dates); const rawServices = list(firstArray(trip.itinerary, trip.services, root.itinerary, Array.isArray(root.services) ? root.services : undefined, root.steps, asObject(root.data).services));
+  const documentCorpus = JSON.stringify(firstArray(trip.vouchers, trip.documents, root.vouchers, root.documents) || "");
+  const explicitYears = Array.from(documentCorpus.matchAll(/\b(20(?:1\d|2\d))\b/g)).map(match => Number(match[1])).filter(year => year !== 2000);
+  const yearCounts = explicitYears.reduce<Record<number, number>>((counts, year) => ({ ...counts, [year]: (counts[year] || 0) + 1 }), {});
+  const evidenceYear = Number(Object.entries(yearCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 0);
+  const yearHint = evidenceYear || Number(text(root.generatedAt, root.createdAt).slice(0, 4)) || new Date().getUTCFullYear();
+  const rootDates = asObject(root.dates); const shortTripDates = Boolean(rootDates.start || rootDates.end) && !/\b20\d{2}\b/.test(JSON.stringify(rootDates)); const rawServices = list(firstArray(trip.itinerary, trip.services, root.itinerary, Array.isArray(root.services) ? root.services : undefined, root.steps, asObject(root.data).services));
   const grouped: AnyRecord[] = ["flights","hotels","activities","transfers","trains","carRentals","locations","ferries","boats"].flatMap(key => list(root[key]).map(item => ({ ...item, type: item.type || key })));
   const capturedTextServices = parseCapturedItinerary(root.itinerary, yearHint);
   const sourceItems = rawServices.length ? rawServices : grouped.length ? grouped : capturedTextServices;
   const itinerary: ItineraryItem[] = sourceItems.map((item, index) => {
     const location = text(item.location, item.city, item.address, item.route, item.origin && item.destination ? `${item.origin} → ${item.destination}` : "");
-    const date = formatDate(first(item.date, item.startDate, item.departureDate, item.checkIn, item.from), yearHint);
-    const endDate = formatDate(first(item.endDate, item.arrivalDate, item.checkOut, item.to), yearHint);
+    const rawDate = formatDate(first(item.date, item.startDate, item.departureDate, item.checkIn, item.from), yearHint); const rawEndDate = formatDate(first(item.endDate, item.arrivalDate, item.checkOut, item.to), yearHint);
+    const date = shortTripDates && evidenceYear && rawDate ? `${evidenceYear}-${rawDate.slice(5)}` : rawDate;
+    const endDate = shortTripDates && evidenceYear && rawEndDate ? `${evidenceYear}-${rawEndDate.slice(5)}` : rawEndDate;
     const type = canonicalType(item.type || item.kind || item.category || item.serviceType);
     const title = text(item.displayTitle, item.hotelName, item.activityName, item.experienceName, item.flightNumber, item.trainNumber, item.transferName, item.title, item.name, item.label, item.subject, "Prestation sans titre");
     const subtitle = text(item.subtitle, item.roomType, item.room, item.board, item.mealPlan, item.class, item.vehicle, item.category, item.details, item.description);
@@ -128,7 +133,8 @@ export function normalizeTripPayload(raw: unknown): TripDocument {
   const extractionNotes = !rawServices.length && !grouped.length ? ["L’export contient les métadonnées et les noms de documents, mais aucune prestation détaillée dans services/itinerary. Refaire une capture avec les onglets de l’itinéraire ouverts."] : [];
   const serviceNames = itinerary.flatMap(item => [item.title, item.location]).filter(Boolean).map(value => value.toLowerCase().trim());
   const cleanTravelers = travelers.filter(traveler => { const rawName = text(traveler.name, traveler.fullName); const name = rawName.toLowerCase().trim(); return isLikelyTraveler(rawName) && name && !serviceNames.some(service => name === service || (name.length > 8 && service.includes(name))); });
-  return { raw: root, meta: { reference, tripId: text(trip.id, root.internalId, root.tripId, metadata.tripId, "—"), packageName: text(trip.package, trip.plan, root.package, "Elite"), destination, period: startDate ? `${formatDateFr(startDate)} → ${formatDateFr(endDate)}` : "Période à identifier", agency: text(asObject(trip.agency).name, trip.agency, root.agency, metadata.agency, "Agence à identifier"), startDate, endDate, zones: Array.from(new Set(itinerary.map(i => i.city).filter(Boolean))), profileNotes: [...(Array.isArray(metadata.profileNotes) ? metadata.profileNotes.map(String) : []), ...extractionNotes, ...(compactServiceNotes ? [compactServiceNotes] : [])], travelers: cleanTravelers }, itinerary, vouchers, tickets, notes, roadbook, rawText: JSON.stringify(root, null, 2), days, localWarnings: warnings };
+  const profileNotes = [...(Array.isArray(metadata.profileNotes) ? metadata.profileNotes.map(String) : []), ...extractionNotes, ...(compactServiceNotes ? [compactServiceNotes] : [])].filter(note => !/\b(?:aucune?|sans|pas de|no|none)\s+(?:allergie|allergies|allergy)\b/i.test(note));
+  return { raw: root, meta: { reference, tripId: text(trip.id, root.internalId, root.tripId, metadata.tripId, "—"), packageName: text(trip.package, trip.plan, root.package, "Elite"), destination, period: startDate ? `${formatDateFr(startDate)} → ${formatDateFr(endDate)}` : "Période à identifier", agency: text(asObject(trip.agency).name, trip.agency, root.agency, metadata.agency, "Agence à identifier"), startDate, endDate, zones: Array.from(new Set(itinerary.map(i => i.city).filter(Boolean))), profileNotes, travelers: cleanTravelers }, itinerary, vouchers, tickets, notes, roadbook, rawText: JSON.stringify(root, null, 2), days, localWarnings: warnings };
 }
 
 export function projectDays(startDate: string, endDate: string, items: ItineraryItem[]): DayProjection[] {

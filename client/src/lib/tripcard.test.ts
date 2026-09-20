@@ -61,4 +61,29 @@ describe("normalisation du JSON OnSpot réel", () => {
     });
     expect(document.itinerary[0].date).toBe("2026-09-21");
   });
+
+  it("privilégie l’année explicite des vouchers sur l’année de capture", () => {
+    const document = normalizeTripPayload({
+      generatedAt: "2026-09-14T08:00:00.000Z",
+      country: "Croatie",
+      dates: { start: "22 sept.", end: "1 oct." },
+      travelers: ["Bruno Thoraval", "Joelle Thoraval"],
+      services: [{ type: "hotel", date: "2027-09-22", title: "Sea View Suite", location: "Mlini, HR" }],
+      vouchers: [{ name: "Hotel Mlini.pdf", excerpt: "Arrivée 22.09.2026 · Départ 24.09.2026 · Bruno Thoraval" }],
+    });
+    expect(document.meta.startDate).toBe("2026-09-22");
+    expect(document.itinerary[0].date).toBe("2026-09-22");
+    expect(document.meta.profileNotes).not.toContain("Aucune allergie signalée");
+  });
+
+  it("ignore une mention négative d’allergie dans les notes du JSON", () => {
+    const document = normalizeTripPayload({
+      generatedAt: "2026-09-14T08:00:00.000Z",
+      country: "Croatie",
+      dates: { start: "22 sept.", end: "1 oct." },
+      metadata: { profileNotes: ["Aucune allergie signalée"] },
+      travelers: ["Bruno Thoraval", "Joelle Thoraval"],
+    });
+    expect(document.meta.profileNotes.some(note => /allerg/i.test(note))).toBe(false);
+  });
 });
