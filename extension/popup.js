@@ -3,28 +3,37 @@
 // =========================================================================
 
 import * as pdfjsLib from './pdf.mjs';
+import { buildCompactDossier } from './compact.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const analyzeBtn = document.getElementById('analyzeBtn');
+const copyCompactBtn = document.getElementById('copyCompactBtn');
+const downloadCompactBtn = document.getElementById('downloadCompactBtn');
 const copyTripCardBtn = document.getElementById('copyTripCardBtn');
 const downloadTripCardBtn = document.getElementById('downloadTripCardBtn');
+const diagnosticBtn = document.getElementById('diagnosticBtn');
 const statusBox = document.getElementById('status');
+const summaryBox = document.getElementById('summary');
 const captureScope = document.getElementById('captureScope');
 const scopeHelp = document.getElementById('scopeHelp');
+const versionTag = document.getElementById('versionTag');
+if (versionTag) versionTag.textContent = `v${EXTENSION_VERSION}`;
 
 const scopeLabels = {
   trip_only: 'Voyage uniquement',
   trip_and_all_tickets: 'Voyage + tous les tickets'
 };
 const scopeHelpText = {
-  trip_only: 'Métadonnées, itinéraire, vouchers et documents visibles.',
-  trip_and_all_tickets: 'Capture le voyage puis ouvre séquentiellement chaque ticket lié pour récupérer échanges, statut, rappels et pièces jointes.'
+  trip_only: 'Fiche, voyageurs, notes, rappels, tickets visibles, itinéraire et vouchers.',
+  trip_and_all_tickets: 'Ouvre en plus chaque ticket lié pour lire toute la conversation (plus lent).'
 };
 if (captureScope && scopeHelp) {
   captureScope.addEventListener('change', () => { scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only; });
 }
 
-let lastResult = null; // conserve le dernier résultat d'analyse pour les deux boutons
+let lastResult = null; // dernier résultat de capture, partagé par tous les boutons d'export
+let lastCompact = null;
 
 function logStatus(message, type = 'info') {
   const line = document.createElement('div');
@@ -34,29 +43,60 @@ function logStatus(message, type = 'info') {
   statusBox.scrollTop = statusBox.scrollHeight;
 }
 function clearStatus() { statusBox.innerHTML = ''; }
-function setLoading(btn, isLoading, label, defaultLabel) {
+const exportButtons = [copyCompactBtn, downloadCompactBtn, copyTripCardBtn, downloadTripCardBtn];
+function setExportsEnabled(enabled) { exportButtons.forEach(button => { if (button) button.disabled = !enabled; }); }
+function setLoading(btn, isLoading, label) {
   analyzeBtn.disabled = isLoading;
-  copyTripCardBtn.disabled = isLoading;
-  downloadTripCardBtn.disabled = isLoading;
-  if (isLoading) btn.innerHTML = `<span class="spinner"></span>${label}`;
-  else btn.textContent = defaultLabel;
+  diagnosticBtn.disabled = isLoading;
+  if (isLoading) setExportsEnabled(false);
+  if (!btn.dataset.idle) btn.dataset.idle = btn.innerHTML;
+  btn.innerHTML = isLoading ? `<span class="spinner"></span>${label}` : btn.dataset.idle;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+function downloadText(content, filename, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+function fileSlug(value) { return String(value || 'export').replace(/[^\w-]+/g, '_'); }
+
+function renderSummary(stats) {
+  const readable = stats.vouchers - stats.unreadable.length;
+  summaryBox.hidden = false;
+  summaryBox.innerHTML = `
+    <div class="sum-head"><b>${escapeHtml(stats.reference)}</b><span>${escapeHtml(stats.dates || 'dates non visibles')}</span></div>
+    <div class="sum-grid">
+      <div><span>Voyageurs</span><b>${stats.travelers.length}</b></div>
+      <div><span>Vouchers lus</span><b>${readable}/${stats.vouchers}</b></div>
+      <div><span>Onglets itin.</span><b>${stats.itineraryTabs}</b></div>
+      <div><span>Taille</span><b>≈ ${Math.round(stats.tokens / 100) / 10}k</b><small>tokens</small></div>
+    </div>
+    ${stats.travelers.length ? `<p class="sum-line">${stats.travelers.map(escapeHtml).join(' · ')}</p>` : ''}
+    ${stats.warnings.length ? `<ul class="sum-warn">${stats.warnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<p class="sum-ok">Capture complète, aucune limite détectée.</p>'}`;
 }
 
 // -------------------------------------------------------------------------
-// BOUTON 1 : Analyser Page + Vouchers
+// 1 · Capturer le dossier
 // -------------------------------------------------------------------------
 analyzeBtn.addEventListener('click', async () => {
   clearStatus();
-  setLoading(analyzeBtn, true, 'Ouverture de la page...', 'Analyser Page + Vouchers');
+  summaryBox.hidden = true;
+  lastResult = null;
+  lastCompact = null;
+  setLoading(analyzeBtn, true, 'Lecture de la page…');
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("Impossible de récupérer l'onglet actif.");
 
     const scope = captureScope?.value || 'trip_only';
-    logStatus(`Onglet actif détecté : ${tab.url}`, 'info');
+    logStatus(`Page : ${tab.url}`, 'info');
     logStatus(`Périmètre : ${scopeLabels[scope] || scope}`, 'info');
-    setLoading(analyzeBtn, true, 'Extraction du périmètre...', 'Capturer le périmètre');
 
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -67,96 +107,186 @@ analyzeBtn.addEventListener('click', async () => {
     const pageData = injectionResult.result;
     if (!pageData) throw new Error("Aucune donnée retournée depuis la page.");
 
-    logStatus(`Contenu extrait pour ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length} onglet(s) d'itinéraire.`, 'ok');
-    if (pageData.tickets?.length) logStatus(`${pageData.tickets.length} ticket(s) capturé(s) selon le périmètre choisi.`, 'ok');
+    logStatus(`Onglets d'itinéraire lus : ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length}.`, 'ok');
+    (pageData.tabDiagnostics || []).filter(entry => !entry.found).forEach(entry => logStatus(`  onglet « ${entry.key} » introuvable`, 'warn'));
+    if (pageData.tickets?.length) logStatus(`${pageData.tickets.length} ticket(s) ouvert(s).`, 'ok');
     if (pageData.collectionWarning) logStatus(`⚠ ${pageData.collectionWarning}`, 'warn');
-    logStatus(`${pageData.pdfUrls.length} PDF(s), ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s) détecté(s).`, 'info');
+    logStatus(`${pageData.pdfUrls.length} PDF, ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s).`, 'info');
 
-    // PDF
     const pdfTexts = [];
     for (let i = 0; i < pageData.pdfUrls.length; i++) {
-      setLoading(analyzeBtn, true, `PDF ${i + 1}/${pageData.pdfUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `PDF ${i + 1}/${pageData.pdfUrls.length}…`);
       try {
         const text = await extractPdfTextFromUrl(pageData.pdfUrls[i]);
         pdfTexts.push({ url: pageData.pdfUrls[i], text });
-        logStatus(`✓ PDF ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ PDF ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ PDF ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ PDF ${i + 1} : ${err.message}`, 'err');
         pdfTexts.push({ url: pageData.pdfUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    // DOCX
     const docxTexts = [];
     for (let i = 0; i < pageData.docxUrls.length; i++) {
-      setLoading(analyzeBtn, true, `DOCX ${i + 1}/${pageData.docxUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `DOCX ${i + 1}/${pageData.docxUrls.length}…`);
       try {
         const text = await extractDocxTextFromUrl(pageData.docxUrls[i]);
         docxTexts.push({ url: pageData.docxUrls[i], text });
-        logStatus(`✓ DOCX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ DOCX ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ DOCX ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ DOCX ${i + 1} : ${err.message}`, 'err');
         docxTexts.push({ url: pageData.docxUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    // XLSX
     const xlsxTexts = [];
     for (let i = 0; i < pageData.xlsxUrls.length; i++) {
-      setLoading(analyzeBtn, true, `XLSX ${i + 1}/${pageData.xlsxUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `XLSX ${i + 1}/${pageData.xlsxUrls.length}…`);
       try {
         const text = await extractXlsxTextFromUrl(pageData.xlsxUrls[i]);
         xlsxTexts.push({ url: pageData.xlsxUrls[i], text });
-        logStatus(`✓ XLSX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ XLSX ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ XLSX ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ XLSX ${i + 1} : ${err.message}`, 'err');
         xlsxTexts.push({ url: pageData.xlsxUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    if (pageData.imageUrls.length > 0) {
-      logStatus(`⚠ Images détectées (à vérifier à l'œil) :`, 'info');
-      pageData.imageUrls.forEach((u, i) => logStatus(`  [img ${i + 1}] ${u}`, 'info'));
-    }
-
     lastResult = { pageData, pdfTexts, docxTexts, xlsxTexts };
-    const structured = buildTripCardPayload(lastResult);
-    logStatus(`✓ JSON structuré prêt : ${structured.services.length} prestation(s), ${structured.documents.length} document(s).`, 'ok');
-    logStatus('Utilise Copier ou Télécharger pour importer ce dossier dans TripCard ELITE.', 'info');
-
+    lastCompact = buildCompactDossier({ ...lastResult, version: `v${EXTENSION_VERSION}` });
+    renderSummary(lastCompact.stats);
+    setExportsEnabled(true);
+    logStatus(`✓ Dossier compact prêt (≈ ${lastCompact.stats.tokens} tokens, contre ≈ ${Math.round(lastCompact.stats.rawChars / 3.6)} en brut).`, 'ok');
   } catch (err) {
     console.error(err);
     logStatus('Erreur : ' + err.message, 'err');
   } finally {
-    setLoading(analyzeBtn, false, '', 'Analyser Page + Vouchers');
+    setLoading(analyzeBtn, false);
+    setExportsEnabled(Boolean(lastCompact));
   }
 });
 
 // -------------------------------------------------------------------------
-// BOUTON 2 : Copier pour Trip Card Elite (JSON structuré)
+// 2 · Exports
 // -------------------------------------------------------------------------
+copyCompactBtn.addEventListener('click', async () => {
+  if (!lastCompact) return;
+  await navigator.clipboard.writeText(lastCompact.text);
+  logStatus('✅ Dossier copié. Colle-le dans ton Gem (ou ta conversation Claude).', 'ok');
+});
+
+downloadCompactBtn.addEventListener('click', () => {
+  if (!lastCompact) return;
+  downloadText(lastCompact.text, `dossier-${fileSlug(lastCompact.stats.reference)}-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
+  logStatus('✓ Dossier .md téléchargé.', 'ok');
+});
+
 copyTripCardBtn.addEventListener('click', async () => {
-  if (!lastResult) {
-    logStatus('⚠ Lance d\'abord "Analyser Page + Vouchers".', 'err');
-    return;
-  }
+  if (!lastResult) return;
   const payload = buildTripCardPayload(lastResult);
   await navigator.clipboard.writeText(JSON.stringify(payload));
-  logStatus('✅ JSON TripCard ELITE copié. Va sur l’outil puis clique « Coller depuis le presse-papiers ».', 'ok');
+  logStatus('✅ JSON complet copié (web app / TripCard ELITE).', 'ok');
 });
 
 downloadTripCardBtn.addEventListener('click', () => {
-  if (!lastResult) { logStatus('⚠ Lance d’abord l’analyse de la TripCard.', 'err'); return; }
+  if (!lastResult) return;
   const payload = buildTripCardPayload(lastResult);
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `onspot-tripcard-${payload.reference || 'export'}-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  logStatus('✓ Fichier JSON téléchargé. Il peut être importé directement dans TripCard ELITE.', 'ok');
+  downloadText(JSON.stringify(payload, null, 2), `onspot-tripcard-${fileSlug(payload.reference)}-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+  logStatus('✓ JSON complet téléchargé.', 'ok');
 });
+
+// -------------------------------------------------------------------------
+// Diagnostic : squelette de la page (balises, rôles, onglets) sans les données client,
+// pour caler l'extraction sur la structure réelle d'OnSpot.
+// -------------------------------------------------------------------------
+diagnosticBtn.addEventListener('click', async () => {
+  clearStatus();
+  setLoading(diagnosticBtn, true, 'Diagnostic…');
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [injectionResult] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractDomSkeleton });
+    const report = injectionResult.result || '';
+    downloadText(`OnSpot Audit Assistant v${EXTENSION_VERSION} · diagnostic de structure\n${report}`, `diagnostic-structure-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`, 'text/plain');
+    logStatus(`✓ Diagnostic téléchargé (${report.split('\n').length} lignes). Les emails, téléphones, numéros et noms de voyageurs sont masqués ; jette un œil avant de l'envoyer.`, 'ok');
+  } catch (err) {
+    logStatus('Erreur diagnostic : ' + err.message, 'err');
+  } finally {
+    setLoading(diagnosticBtn, false);
+  }
+});
+
+function extractDomSkeleton() {
+  return new Promise(async (resolve) => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const MAX_LINES = 5000;
+    // Noms des voyageurs repérés sur la page (civilité + prénom + nom) : masqués partout.
+    const personWords = new Set();
+    for (const match of (document.body.innerText || '').matchAll(/\b(?:M\.|Mme|Mr\.?|Mrs\.?|Ms\.?|Mlle)\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+)(?:\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+))?/g)) [match[1], match[2]].filter((word) => word && word.length > 2).forEach((word) => personWords.add(word));
+    const personPattern = personWords.size ? new RegExp(`\\b(?:${Array.from(personWords).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'g') : null;
+    const mask = (text) => {
+      let value = String(text || '')
+        .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]')
+        .replace(/\+?\d[\d ()./-]{6,}\d/g, '[tel]')
+        .replace(/\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,}\b/g, '[ref]')
+        .replace(/\b\d{4,}\b/g, '[n]');
+      if (personPattern) value = value.replace(personPattern, '[voyageur]');
+      return value;
+    };
+    const visible = (el) => { const style = getComputedStyle(el); return style.display !== 'none' && style.visibility !== 'hidden'; };
+    // Seuls les libellés courts (titres, onglets, boutons) sont conservés ; les textes longs (messages, notes) sont résumés par leur longueur.
+    const ownText = (el) => {
+      const text = Array.from(el.childNodes).filter((node) => node.nodeType === 3).map((node) => node.textContent).join(' ').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      return text.length <= 40 ? mask(text) : `[texte ${text.length} car.]`;
+    };
+    const describe = (el) => {
+      const parts = [el.tagName.toLowerCase()];
+      if (el.id) parts.push(`#${el.id}`);
+      const classes = Array.from(el.classList).slice(0, 5);
+      if (classes.length) parts.push(`.${classes.join('.')}`);
+      const attrs = [];
+      for (const attr of Array.from(el.attributes)) {
+        if (/^(?:role|aria-(?:label|selected|controls|expanded|current)|data-[\w-]+|type|name)$/.test(attr.name)) attrs.push(`${attr.name}=${mask(attr.value).slice(0, 40)}`);
+        if (attr.name === 'href') attrs.push(`href=${mask(attr.value.replace(/^https?:\/\/[^/]+/, '').replace(/[a-z]+_[0-9a-z]{20,}/gi, ':id')).slice(0, 60)}`);
+      }
+      if (attrs.length) parts.push(`[${attrs.join(' ')}]`);
+      return parts.join('');
+    };
+    const skeleton = (root) => {
+      const out = [];
+      const walk = (el, depth) => {
+        if (out.length >= MAX_LINES || /^(?:SCRIPT|STYLE|SVG|PATH|NOSCRIPT|TEMPLATE|LINK|META)$/i.test(el.tagName) || !visible(el)) return;
+        const text = ownText(el);
+        const children = Array.from(el.children);
+        const interesting = text || el.id || el.getAttribute('role') || Array.from(el.attributes).some((attr) => /^(?:data-|aria-)/.test(attr.name)) || /^(?:BUTTON|A|H\d|SECTION|NAV|MAIN|ASIDE|HEADER|UL|LI|TABLE|TR|INPUT|LABEL)$/.test(el.tagName) || children.length > 1;
+        if (interesting) out.push(`${'  '.repeat(Math.min(depth, 30))}${describe(el)}${text ? ` "${text}"` : ''}`);
+        children.forEach((child) => walk(child, interesting ? depth + 1 : depth));
+      };
+      walk(root, 0);
+      if (out.length >= MAX_LINES) out.push('… (tronqué)');
+      return out.join('\n');
+    };
+    const tabCandidates = () => Array.from(document.querySelectorAll('[role="tab"], button, a, li'))
+      .filter((el) => visible(el) && (el.textContent || '').trim() && (el.textContent || '').trim().length <= 30)
+      .map((el) => `${describe(el)} "${mask((el.textContent || '').trim())}"`)
+      .slice(0, 150);
+
+    const sections = [];
+    sections.push(`URL : ${mask(location.pathname.replace(/[a-z]+_[0-9a-z]{20,}/gi, ':id'))}`);
+    sections.push(`\n===== VUE INITIALE · éléments cliquables courts =====\n${tabCandidates().join('\n')}`);
+    sections.push(`\n===== VUE INITIALE · squelette =====\n${skeleton(document.body)}`);
+
+    const findByText = (labels) => Array.from(document.querySelectorAll('[role="tab"], button, a, li, div, span'))
+      .find((el) => visible(el) && labels.includes((el.textContent || '').trim().toLowerCase()));
+    const itineraryTab = findByText(['itinéraire', 'itinerary']);
+    if (itineraryTab) {
+      try { itineraryTab.click(); await sleep(900); } catch (e) {}
+      sections.push(`\n===== APRÈS CLIC « Itinéraire » · éléments cliquables courts =====\n${tabCandidates().join('\n')}`);
+      sections.push(`\n===== APRÈS CLIC « Itinéraire » · squelette =====\n${skeleton(document.body)}`);
+    } else sections.push('\n(onglet « Itinéraire » introuvable)');
+    resolve(sections.join('\n'));
+  });
+}
 
 // =========================================================================
 // Fonction injectée dans la page active — extraction PAR ONGLET
@@ -229,6 +359,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function isLikelyTravelerName(value) {
       const name = cleanTravelerName(value);
       if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+      if (/\b(?:call|rappel|reminder|compte rendu|boarding|welcome|goodbye|good bye|here for you|haute valeur|completed)\b/i.test(name)) return false;
       if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
       const words = name.split(/\s+/).filter(Boolean);
       return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
@@ -320,6 +451,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function classify(url) {
       const value = String(url || '').trim();
       if (!value || /^chrome-extension:\/\/invalid(?:\/|$)/i.test(value) || /^chrome-extension:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) return;
+      if (/USER_AVATAR|\/avatar\.(?:png|jpe?g|webp)/i.test(value)) return;
       if (/\.pdf($|\?)/i.test(value)) pdfUrlSet.add(value);
       else if (/\.docx($|\?)/i.test(value)) docxUrlSet.add(value);
       else if (/\.(xlsx|xls)($|\?)/i.test(value)) xlsxUrlSet.add(value);
@@ -738,7 +870,8 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
 function isLikelyTravelerName(value) {
   const name = String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
   if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
-  if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
+  if (/\b(?:call|rappel|reminder|compte rendu|boarding|welcome|goodbye|good bye|here for you|haute valeur|completed)\b/i.test(name)) return false;
+      if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
   const words = name.split(/\s+/).filter(Boolean);
   return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
 }
@@ -783,7 +916,7 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const elitePlan = buildEliteOperationalPlan({ allText: `${allText}\n${ticketCorpus}`, files, services, tickets: capturedTickets });
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
-    collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning || !detailedItineraryCaptured ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: Array.from(new Set([pageData.collectionWarning, !detailedItineraryCaptured ? 'Les onglets détaillés de l’itinéraire n’ont pas été capturés ; les prestations ont été structurées depuis le bandeau visible. Refaire une capture complète pour obtenir les horaires et détails.' : null, detailedItineraryCaptured && !services.length ? 'Les onglets d’itinéraire ont été lus mais aucune prestation structurée n’a été reconnue ; vérifier les diagnostics DOM.' : null].filter(Boolean))), visibleOnly: true },
+    collection: { tabDiagnostics: pageData.tabDiagnostics || [], scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning || !detailedItineraryCaptured ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: Array.from(new Set([pageData.collectionWarning, !detailedItineraryCaptured ? 'Les onglets détaillés de l’itinéraire n’ont pas été capturés ; les prestations ont été structurées depuis le bandeau visible. Refaire une capture complète pour obtenir les horaires et détails.' : null, detailedItineraryCaptured && !services.length ? 'Les onglets d’itinéraire ont été lus mais aucune prestation structurée n’a été reconnue ; vérifier les diagnostics DOM.' : null].filter(Boolean))), visibleOnly: true },
     reference, travelers: cleanTravelerNames, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
     metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: cleanTravelerProfiles, travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,

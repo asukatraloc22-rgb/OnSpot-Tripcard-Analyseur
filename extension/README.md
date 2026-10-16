@@ -1,4 +1,20 @@
-# OnSpot Audit Assistant — extension Chrome v2.1.0
+# OnSpot Audit Assistant — extension Chrome v2.3.0
+
+## Nouveau en 2.3.0 : le dossier compact pour Gemini / Claude
+
+Après **Capturer**, l'extension affiche un résumé (voyageurs, vouchers lus, onglets d'itinéraire, taille estimée en tokens, limites de la capture) et propose **Copier le dossier pour Gemini / Claude**. Ce dossier Markdown (`compact.js`) :
+
+- ne garde qu'une fois la fiche, les voyageurs et leurs contacts, les notes d'agence, la note interne, les rappels, les services et les tickets ;
+- retire la coque OnSpot répétée dans chaque onglet d'itinéraire ;
+- réduit chaque voucher aux phrases qui portent un fait (date, heure, référence, RDV, contact), supprime les mentions légales et les répétitions entre documents, et place le carnet de voyage en dernier ;
+- signale les vouchers sans texte lisible (PDF scannés) et les autres limites de capture.
+
+Sur le Trip 2120026733 (Italie, 21 vouchers), le volume passe d'environ 40 000 à 10 000 tokens. Les instructions du Gem sont dans `prompts/gem-auditeur-elite.md`. Pour rejouer la compaction sur un export JSON existant : `node scripts/compact-smoke.mjs export.json dossier.md`.
+
+Le lien **Diagnostic de structure** télécharge le squelette de la page OnSpot (balises, rôles, onglets), avec les emails, téléphones, références et noms de voyageurs masqués. Il sert à caler l'extraction quand un onglet n'est pas trouvé.
+
+Les boutons JSON restent disponibles pour la web app et TripCard ELITE.
+
 
 Cette extension est destinée à un **usage personnel local** avec TripCard ELITE. Elle ne contient ni authentification, ni API, ni envoi automatique de données. Elle lit uniquement l’onglet OnSpot actif lorsque vous cliquez sur **« Capturer le périmètre »** et prépare un paquet JSON local, versionné et importable.
 
