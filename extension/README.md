@@ -1,4 +1,8 @@
-# OnSpot Audit Assistant — extension Chrome v2.3.0
+# OnSpot Audit Assistant — extension Chrome v2.4.0
+
+## Nouveau en 2.4.0 : lecture structurée de la carte OnSpot
+
+Calée sur le diagnostic de structure d'octobre 2026, l'extension lit directement l'itinéraire jour par jour (`[data-itin-scroll] li[data-date-key]`, lignes `[data-testid=itinerary-row-body]` : type, heure, titre, détails, voucher lié, statut), ainsi que le bandeau, les rappels, les voyageurs et leurs contacts, les notes, la note interne, les services et les cartes de tickets. Si ce balisage change, l'extension retombe sur l'ancienne lecture du texte de la page.
 
 ## Nouveau en 2.3.0 : le dossier compact pour Gemini / Claude
 

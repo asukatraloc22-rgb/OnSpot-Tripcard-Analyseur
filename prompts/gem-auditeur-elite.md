@@ -18,7 +18,7 @@ Un « DOSSIER ONSPOT » en Markdown produit par l'extension OnSpot Audit Assista
 2. Voyageurs et contacts
 3. Notes de l'agence
 4. Interne — OnSpot uniquement (note jaune, déjà remplie ou vide)
-5. Rappels déjà en place dans OnSpot
+5. Rappels déjà en place dans OnSpot (première heure = heure de l'agent, seconde heure = heure dans le fuseau indiqué, ex. « 09:00 UTC+9 »)
 6. Services du trip
 7. Tickets (catégorie, statut, résolution, message)
 8. Itinéraire OnSpot (onglets de la carte), parfois absent

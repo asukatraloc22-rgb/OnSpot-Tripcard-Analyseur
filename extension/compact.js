@@ -194,63 +194,107 @@ export function buildCompactDossier({ pageData, pdfTexts = [], docxTexts = [], x
   const push = (...items) => out.push(...items);
   const block = key => (sidebar.blocks[key] || []).slice(1).filter(line => !/^(?:Add reminder|Ajouter un (?:rappel|voucher|ticket))$/i.test(line) && !/^\d+$/.test(line));
 
-  const reference = sidebar.reference ? `Trip ${sidebar.reference}` : (pageData.pageTitle || 'Trip sans référence');
+  const reference = sidebar.reference ? `Trip ${sidebar.reference}` : (pageData.structured?.title || pageData.pageTitle || 'Trip sans référence');
   push(`# DOSSIER ONSPOT — ${reference}`, '');
   push(`Capture : ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC · OnSpot Audit Assistant ${version} · ${pageData.pageUrl || ''}`, '');
 
+  // Lecture structurée de la carte (extension ≥ 2.4) quand elle existe, sinon analyse du texte de la page.
+  const st = pageData.structured && !pageData.structured.error ? pageData.structured : null;
+  const hasStructuredItinerary = Boolean(st?.itinerary?.some(day => day.rows?.length));
+
   push('## 1. Fiche dossier');
-  const f = sidebar.fields;
+  const f = { ...sidebar.fields, ...Object.fromEntries(Object.entries(st?.header || {}).filter(([, value]) => value)) };
   push(`- Pays : ${f.pays || '(non visible)'}`, `- Dates du trip : ${f.dates || '(non visibles)'}`, `- Agence : ${f.agence || '(non visible)'}`, `- Forfait : ${f.forfait || '(non visible)'}`, '');
 
-  push(`## 2. Voyageurs (${travelers.length})`);
-  if (!travelers.length) { push('- (aucun voyageur lisible dans le panneau Voyageurs)'); warnings.push('Voyageurs non lus dans le panneau latéral.'); }
-  travelers.forEach(traveler => {
+  const travelerList = st?.travelers?.length
+    ? st.travelers.map(traveler => ({ label: traveler.name, emails: traveler.emails || [], phones: traveler.phones || [], extra: traveler.badges || [] }))
+    : travelers.map(traveler => ({ label: `${traveler.civilite} ${traveler.nom}`, emails: traveler.emails, phones: traveler.telephones, extra: traveler.autres }));
+  push(`## 2. Voyageurs (${travelerList.length})`);
+  if (!travelerList.length) { push('- (aucun voyageur lisible dans le panneau Voyageurs)'); warnings.push('Voyageurs non lus dans le panneau latéral.'); }
+  travelerList.forEach(traveler => {
     const details = [
       traveler.emails.length ? `email : ${traveler.emails.join(', ')}` : 'email : (absent)',
-      traveler.telephones.length ? `tél : ${traveler.telephones.join(', ')}` : 'tél : (absent)',
-      ...traveler.autres,
+      traveler.phones.length ? `tél : ${traveler.phones.join(', ')}` : 'tél : (absent)',
+      ...traveler.extra,
     ];
-    push(`- ${traveler.civilite} ${traveler.nom} — ${details.join(' · ')}`);
+    push(`- ${traveler.label} — ${details.join(' · ')}`);
   });
   push('');
 
-  push('## 3. Notes de l’agence', ...(block('notes').length ? block('notes').map(line => `> ${line}`) : ['(aucune note)']), '');
-  push('## 4. Interne — OnSpot uniquement', ...(block('interne').length ? block('interne') : ['(vide)']), '');
-  push('## 5. Rappels déjà en place (heures telles qu’affichées par OnSpot)', ...(block('rappels').length ? block('rappels').map(line => `- ${line}`) : ['(aucun rappel visible)']), '');
-  push('## 6. Services du trip', ...(block('services').length ? [block('services').join(' · ')] : ['(non visibles)']), '');
+  const notes = st ? st.notes || [] : block('notes');
+  const internal = st ? lines(st.internal) : block('interne');
+  push('## 3. Notes de l’agence', ...(notes.length ? notes.flatMap(note => lines(note)).map(line => `> ${line}`) : ['(aucune note)']), '');
+  push('## 4. Interne — OnSpot uniquement', ...(internal.length ? internal : ['(vide)']), '');
+  push('## 5. Rappels déjà en place (heure de l’agent, puis heure dans le fuseau indiqué)');
+  if (st?.reminders?.length) {
+    st.reminders.forEach(reminder => push(`- ${reminder.join(' · ')}`));
+    if (st.completedReminders) push(`- (${st.completedReminders} rappel(s) déjà terminé(s), non détaillés)`);
+  } else push(...(block('rappels').length ? block('rappels').map(line => `- ${line}`) : ['(aucun rappel visible)']));
+  push('');
+  const services = st?.services?.length ? st.services : block('services');
+  push('## 6. Services du trip', ...(services.length ? [services.join(' · ')] : ['(non visibles)']), '');
 
-  push(`## 7. Tickets${sidebar.blocks.tickets ? ` ${sidebar.blocks.tickets[0].replace(/^Tickets\s*/, '')}` : ''}`);
-  const ticketLines = block('tickets');
-  if (ticketLines.length) {
-    // Chaque ticket : en-tête court (catégorie, priorité, statut, assignation), ligne « #numéro · date · … », puis le message.
-    const hashIndexes = ticketLines.map((line, index) => (/^#\d+/.test(line) ? index : -1)).filter(index => index >= 0);
-    const headerStart = hashIndex => {
-      let start = hashIndex;
-      while (start > 0 && hashIndex - start < 4 && ticketLines[start - 1].length <= 30 && !/^#\d+/.test(ticketLines[start - 1])) start -= 1;
-      return start;
-    };
-    const starts = hashIndexes.map(headerStart);
-    hashIndexes.forEach((hashIndex, position) => {
-      const end = position + 1 < starts.length ? starts[position + 1] : ticketLines.length;
-      const header = ticketLines.slice(starts[position], hashIndex).join(' · ');
-      const body = ticketLines.slice(hashIndex + 1, end).join(' ');
-      push(`- [${header}] ${ticketLines[hashIndex]}`, body ? `  ${body.slice(0, 1500)}` : '');
+  if (st?.tickets?.length) {
+    push(`## 7. Tickets (${st.tickets.length})`);
+    st.tickets.forEach(ticket => {
+      const [category, ...rest] = ticket.lines;
+      const hasMessage = rest.length > 1 && rest[rest.length - 1].length > 40;
+      const message = hasMessage ? rest[rest.length - 1] : '';
+      const meta = (hasMessage ? rest.slice(0, -1) : rest).join(' · ');
+      push(`- [${category}] ${meta}`, message ? `  ${message.slice(0, 1500)}` : '');
     });
-  } else push('(aucun ticket visible)');
+  } else {
+    push(`## 7. Tickets${sidebar.blocks.tickets ? ` ${sidebar.blocks.tickets[0].replace(/^Tickets\s*/, '')}` : ''}`);
+    const ticketLines = block('tickets');
+    if (ticketLines.length) {
+      // Chaque ticket : en-tête court (catégorie, priorité, statut, assignation), ligne « #numéro · date · … », puis le message.
+      const hashIndexes = ticketLines.map((line, index) => (/^#\d+/.test(line) ? index : -1)).filter(index => index >= 0);
+      const headerStart = hashIndex => {
+        let start = hashIndex;
+        while (start > 0 && hashIndex - start < 4 && ticketLines[start - 1].length <= 30 && !/^#\d+/.test(ticketLines[start - 1])) start -= 1;
+        return start;
+      };
+      const starts = hashIndexes.map(headerStart);
+      hashIndexes.forEach((hashIndex, position) => {
+        const end = position + 1 < starts.length ? starts[position + 1] : ticketLines.length;
+        const header = ticketLines.slice(starts[position], hashIndex).join(' · ');
+        const body = ticketLines.slice(hashIndex + 1, end).join(' ');
+        push(`- [${header}] ${ticketLines[hashIndex]}`, body ? `  ${body.slice(0, 1500)}` : '');
+      });
+    } else push('(aucun ticket visible)');
+  }
   if (Array.isArray(pageData.tickets) && pageData.tickets.length) {
     push('', '### Tickets ouverts par l’extension');
     pageData.tickets.forEach(ticket => push(`- #${ticket.ticketNumber} · ${ticket.status} · ${ticket.subject || ''}`, ticket.conversationText ? `  ${ticket.conversationText.replace(/\s+/g, ' ').slice(0, 1500)}` : ''));
   }
   push('');
 
-  push('## 8. Itinéraire OnSpot (onglets)');
-  const tabLabels = { tous: 'Tous', hotels: 'Hôtels', vols: 'Vols', activites: 'Activités', locations: 'Locations de voiture', transferts: 'Transferts', trains: 'Trains', vouchersTab: 'Onglet Vouchers' };
-  const tabKeys = Object.keys(tabs).filter(key => key !== 'vouchersTab');
-  if (!tabKeys.length) {
-    push('⚠ Les onglets détaillés de l’itinéraire n’ont pas été capturés : la chronologie doit être reconstruite depuis les vouchers et le carnet de voyage.');
-    warnings.push('Onglets d’itinéraire OnSpot non capturés (horaires et détails de la carte OnSpot absents).');
+  let tabKeys = [];
+  let itineraryRows = 0;
+  if (hasStructuredItinerary) {
+    push('## 8. Itinéraire de la carte OnSpot (jour par jour)');
+    push('Format : heure · type · prestation — détails · voucher lié · statut', '');
+    st.itinerary.forEach(day => {
+      if (!day.rows?.length) return;
+      push(`### ${day.label || day.date}${day.date && day.date !== day.label ? ` (${day.date})` : ''}`);
+      day.rows.forEach(row => {
+        itineraryRows += 1;
+        const parts = [row.time || '—', row.type || '?', row.title || '(sans titre)'];
+        const details = (row.details || []).join(' | ');
+        push(`- ${parts.join(' · ')}${details ? ` — ${details}` : ''}${row.voucher ? ` · voucher : ${row.voucher}` : ' · ⚠ aucun voucher lié'}${row.status ? ` · ${row.status}` : ''}`);
+      });
+      push('');
+    });
+  } else {
+    push('## 8. Itinéraire OnSpot (onglets)');
+    const tabLabels = { tous: 'Tous', hotels: 'Hôtels', vols: 'Vols', activites: 'Activités', locations: 'Locations de voiture', transferts: 'Transferts', trains: 'Trains', vouchersTab: 'Onglet Vouchers' };
+    tabKeys = Object.keys(tabs).filter(key => key !== 'vouchersTab');
+    if (!tabKeys.length) {
+      push('⚠ Les onglets détaillés de l’itinéraire n’ont pas été capturés : la chronologie doit être reconstruite depuis les vouchers et le carnet de voyage.');
+      warnings.push('Onglets d’itinéraire OnSpot non capturés (horaires et détails de la carte OnSpot absents).');
+    }
+    tabKeys.forEach(key => push(`### ${tabLabels[key] || key}`, tabs[key], ''));
   }
-  tabKeys.forEach(key => push(`### ${tabLabels[key] || key}`, tabs[key], ''));
   push('');
 
   const files = [
@@ -290,11 +334,12 @@ export function buildCompactDossier({ pageData, pdfTexts = [], docxTexts = [], x
     text,
     stats: {
       reference,
-      travelers: travelers.map(traveler => traveler.nom),
+      travelers: travelerList.map(traveler => traveler.label.replace(/^(?:M\.|Mme|Mr\.?|Mrs\.?|Ms\.?|Mlle)\s+/, '')),
       dates: f.dates || null,
       vouchers: compacted.length,
       unreadable: unreadable.map(file => file.name),
       itineraryTabs: tabKeys.length,
+      itineraryRows,
       rawChars: snapshot.length + Object.values(pageData.itinerary || {}).join('').length + files.reduce((sum, file) => sum + String(file.text || '').length, 0),
       compactChars: text.length,
       tokens: estimateTokens(text),

@@ -73,7 +73,7 @@ function renderSummary(stats) {
     <div class="sum-grid">
       <div><span>Voyageurs</span><b>${stats.travelers.length}</b></div>
       <div><span>Vouchers lus</span><b>${readable}/${stats.vouchers}</b></div>
-      <div><span>Onglets itin.</span><b>${stats.itineraryTabs}</b></div>
+      <div><span>Prestations</span><b>${stats.itineraryRows || stats.itineraryTabs}</b></div>
       <div><span>Taille</span><b>≈ ${Math.round(stats.tokens / 100) / 10}k</b><small>tokens</small></div>
     </div>
     ${stats.travelers.length ? `<p class="sum-line">${stats.travelers.map(escapeHtml).join(' · ')}</p>` : ''}
@@ -339,7 +339,9 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         const style = window.getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden' && (element.innerText || '').trim();
       });
       const panel = unique.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0];
-      return (panel?.innerText || '').trim();
+      if (panel) return (panel.innerText || '').trim();
+      // OnSpot (2026) n'a pas de role=tabpanel : la liste filtrée de l'itinéraire vit dans [data-itin-scroll].
+      return (document.querySelector('[data-itin-scroll]')?.innerText || '').trim();
     }
 
     async function clickAndReadTab(tab, fallback = '') {
@@ -703,12 +705,97 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       tabDiagnostics.push({ key: vouchersTabDef.key, found: false, chars: 0, panelScoped: false });
     }
 
+    // 4) Lecture structurée de la carte OnSpot (balisage observé via le diagnostic de structure, oct. 2026) :
+    // itinéraire jour par jour, bandeau, rappels, voyageurs, notes, services et cartes de tickets.
+    const textOf = (el) => (el?.innerText || '').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+    const flat = (el) => textOf(el).replace(/\n/g, ' ');
+    // Textes « feuilles » (texte propre de chaque élément) : évite les mots collés quand des <span> en ligne se suivent.
+    const leafTexts = (root) => {
+      const out = [];
+      if (!root) return out;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) { const text = node.textContent.replace(/\s+/g, ' ').trim(); if (text && text !== '·') out.push(text); }
+      return out;
+    };
+    const exactButton = (label, root = document) => Array.from(root.querySelectorAll('button, [role="tab"]')).find((el) => flat(el).toLowerCase() === label.toLowerCase());
+    function sectionByHeading(pattern) {
+      const heading = Array.from(document.querySelectorAll('h2, h3')).find((el) => pattern.test(flat(el)));
+      return heading ? (heading.closest('.flex-col') || heading.parentElement?.parentElement?.parentElement || null) : null;
+    }
+    function headerField(label) {
+      const labelEl = Array.from(document.querySelectorAll('p')).find((el) => flat(el).toLowerCase() === label.toLowerCase());
+      if (!labelEl?.parentElement) return '';
+      return leafTexts(labelEl.parentElement).slice(leafTexts(labelEl).length).join(' ').trim();
+    }
+    async function readStructuredCard() {
+      try {
+        const itineraryButton = exactButton('Itinéraire') || exactButton('Itinerary');
+        if (itineraryButton) { itineraryButton.click(); await sleep(500); }
+        const filterGroup = document.querySelector('[role="group"][aria-label*="Filtrer" i]') || document;
+        const allButton = exactButton('Tous', filterGroup) || exactButton('All', filterGroup);
+        if (allButton) { allButton.click(); await sleep(500); }
+      } catch (e) {}
+      const scroller = document.querySelector('[data-itin-scroll]');
+      const days = Array.from((scroller || document).querySelectorAll('li[data-date-key]')).map((day) => ({
+        date: day.getAttribute('data-date-key') || '',
+        label: flat(day.querySelector('[data-testid="itinerary-day-header"]')),
+        rows: Array.from(day.querySelectorAll('[data-testid="itinerary-row-body"]')).map((row) => {
+          const voucher = row.querySelector('a[href]');
+          return {
+            type: flat(row.querySelector('span.text-xs')),
+            time: flat(row.querySelector('span.font-mono')),
+            title: flat(row.querySelector('h4')),
+            details: Array.from(row.querySelectorAll('p')).map(flat).filter(Boolean),
+            voucher: voucher ? (voucher.getAttribute('aria-label') || '') : '',
+            voucherUrl: voucher ? voucher.href : '',
+            status: Array.from(row.querySelectorAll('[role="img"][aria-label]')).map((el) => el.getAttribute('aria-label')).join(', '),
+          };
+        }),
+      }));
+      const reminderSection = sectionByHeading(/^Reminders\b|^Rappels\b/i);
+      const reminders = reminderSection ? Array.from(reminderSection.querySelectorAll('ul > li')).map((li) => leafTexts(li)).filter((lines) => lines.length) : [];
+      const completedReminders = reminderSection ? (flat(reminderSection).match(/Completed\s*\(\s*(\d+)\s*\)|Terminés?\s*\(\s*(\d+)\s*\)/i) || []).slice(1).find(Boolean) || null : null;
+      const travelerSection = sectionByHeading(/^Voyageurs\b|^Travell?ers\b/i);
+      const travelers = travelerSection ? Array.from(travelerSection.querySelectorAll('p.font-medium')).map((nameEl) => {
+        const row = nameEl.closest('.p-3, .rounded-lg') || nameEl.parentElement?.parentElement || nameEl;
+        const contacts = Array.from(row.querySelectorAll('button')).map(flat).filter(Boolean);
+        const badges = Array.from(row.querySelectorAll('span')).map(flat).filter((text) => text && text !== '—' && !contacts.some((contact) => contact.includes(text)) && !flat(nameEl).includes(text));
+        return { name: flat(nameEl), emails: contacts.filter((text) => /@/.test(text)), phones: contacts.filter((text) => /^\+?[\d ()./-]{7,}$/.test(text)), badges: Array.from(new Set(badges)) };
+      }) : [];
+      const notesSection = sectionByHeading(/^Notes$/i);
+      const internalLabel = notesSection ? Array.from(notesSection.querySelectorAll('span, p')).find((el) => /^Interne\s*[—-]\s*OnSpot/i.test(flat(el))) : null;
+      const internalBox = internalLabel ? (internalLabel.closest('.rounded-xl') || internalLabel.parentElement?.parentElement) : null;
+      const notes = notesSection ? Array.from(notesSection.querySelectorAll('p')).filter((el) => !internalBox?.contains(el)).map(textOf).filter((text) => text && !/^Aucune note$/i.test(text)) : [];
+      const internal = internalBox ? Array.from(internalBox.querySelectorAll('p')).map(textOf).filter(Boolean).join('\n') : '';
+      const servicesSection = sectionByHeading(/^Services du trip/i);
+      const services = servicesSection ? Array.from(servicesSection.querySelectorAll('button')).map((el) => textOf(el).split('\n').join(' : ')).filter(Boolean) : [];
+      const ticketSection = sectionByHeading(/^Tickets\b/i);
+      const ticketCards = ticketSection ? Array.from(ticketSection.querySelectorAll('a[href*="/tickets/"]')).map((card) => ({ href: card.href, lines: leafTexts(card) })) : [];
+      return {
+        title: flat(document.querySelector('h1')),
+        header: { pays: headerField('Pays'), dates: headerField('Dates de trip'), agence: headerField('Agence'), voyageurs: headerField('Voyageurs'), forfait: headerField('Forfait') },
+        itinerary: days,
+        reminders,
+        completedReminders: completedReminders ? Number(completedReminders) : null,
+        travelers,
+        notes,
+        internal,
+        services,
+        tickets: ticketCards,
+      };
+    }
+    let structured = null;
+    try { structured = await readStructuredCard(); scanFilesOnCurrentDOM(); } catch (e) { structured = { error: e.message || 'lecture structurée impossible' }; }
+    tabDiagnostics.push({ key: 'structured', found: Boolean(structured?.itinerary?.length), chars: structured?.itinerary?.reduce((sum, day) => sum + day.rows.length, 0) || 0, panelScoped: true });
+
     // 4) Tickets et Rappels ne sont jamais ouverts : le contrôle pré-départ ne doit pas déplacer l’agent vers ces écrans.
     // L’extension conserve uniquement une présence passive observée dans le bandeau principal.
     try { if (originalTab && originalTab instanceof HTMLElement) { originalTab.click(); await sleep(120); } } catch (e) {}
 
     resolve({
       itinerary,
+      structured,
       initialSnapshot,
       travelerData,
       ticketsPresence,

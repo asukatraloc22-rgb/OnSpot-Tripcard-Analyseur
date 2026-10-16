@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OnSpot Audit Assistant",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Capture une Trip Card OnSpot et ses vouchers, et produit un dossier compact prêt pour un Gem Gemini ou Claude.",
   "permissions": [
     "activeTab",
