@@ -18,19 +18,23 @@ const summaryBox = document.getElementById('summary');
 const captureScope = document.getElementById('captureScope');
 const scopeHelp = document.getElementById('scopeHelp');
 const versionTag = document.getElementById('versionTag');
+const openDetailsBox = document.getElementById('openReminderDetails');
+const reportOptions = document.getElementById('reportOptions');
 if (versionTag) versionTag.textContent = `v${EXTENSION_VERSION}`;
 
 const scopeLabels = {
   trip_only: 'Voyage uniquement',
-  trip_and_all_tickets: 'Voyage + tous les tickets'
+  trip_and_all_tickets: 'Compte rendu : voyage + tickets + rappels'
 };
 const scopeHelpText = {
   trip_only: 'Fiche, voyageurs, notes, rappels, tickets visibles, itinéraire et vouchers.',
-  trip_and_all_tickets: 'Ouvre en plus chaque ticket lié pour lire toute la conversation (plus lent).'
+  trip_and_all_tickets: 'Lit en plus chaque ticket dans un onglet d’arrière-plan (tu restes sur la Trip Card) et tous les rappels, y compris terminés.'
 };
-if (captureScope && scopeHelp) {
-  captureScope.addEventListener('change', () => { scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only; });
+function syncScopeUi() {
+  if (scopeHelp) scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only;
+  if (reportOptions) reportOptions.hidden = captureScope.value !== 'trip_and_all_tickets';
 }
+if (captureScope) { captureScope.addEventListener('change', syncScopeUi); syncScopeUi(); }
 
 let lastResult = null; // dernier résultat de capture, partagé par tous les boutons d'export
 let lastCompact = null;
@@ -101,7 +105,7 @@ analyzeBtn.addEventListener('click', async () => {
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: extractPageContentPerTabAndFiles,
-      args: [scope],
+      args: [scope, Boolean(openDetailsBox?.checked)],
     });
 
     const pageData = injectionResult.result;
@@ -112,6 +116,19 @@ analyzeBtn.addEventListener('click', async () => {
     if (pageData.tickets?.length) logStatus(`${pageData.tickets.length} ticket(s) ouvert(s).`, 'ok');
     if (pageData.collectionWarning) logStatus(`⚠ ${pageData.collectionWarning}`, 'warn');
     logStatus(`${pageData.pdfUrls.length} PDF, ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s).`, 'info');
+
+    if (scope === 'trip_and_all_tickets') {
+      const reminders = pageData.structured?.reminders || [];
+      logStatus(`Rappels lus : ${reminders.filter(item => !item.completed).length} à venir, ${reminders.filter(item => item.completed).length} terminé(s).`, 'ok');
+      const ticketUrls = Array.from(new Set((pageData.structured?.tickets || []).map(ticket => ticket.href).filter(Boolean)));
+      pageData.ticketPages = [];
+      for (let i = 0; i < ticketUrls.length; i++) {
+        setLoading(analyzeBtn, true, `Ticket ${i + 1}/${ticketUrls.length}…`);
+        const page = await readTicketInBackground(ticketUrls[i]);
+        pageData.ticketPages.push(page);
+        logStatus(page.ok ? `✓ Ticket ${i + 1} lu (${page.text.length} car.)` : `✗ Ticket ${i + 1} : ${page.error}`, page.ok ? 'ok' : 'err');
+      }
+    }
 
     const pdfTexts = [];
     for (let i = 0; i < pageData.pdfUrls.length; i++) {
@@ -165,6 +182,55 @@ analyzeBtn.addEventListener('click', async () => {
     setExportsEnabled(Boolean(lastCompact));
   }
 });
+
+// -------------------------------------------------------------------------
+// Tickets : chaque ticket est ouvert dans un onglet d'arrière-plan, lu, puis fermé.
+// L'onglet de l'agent ne bouge pas et aucune autre page n'est visitée.
+// -------------------------------------------------------------------------
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function waitForTabComplete(tabId, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(false); }, timeoutMs);
+    function listener(id, info) {
+      if (id === tabId && info.status === 'complete') { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve(true); }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function readTicketInBackground(url) {
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url, active: false });
+    await waitForTabComplete(tab.id);
+    let last = null;
+    // La page est une application : on attend que la conversation soit affichée (texte stable).
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readTicketPage });
+      const page = result?.result;
+      if (page?.loginRequired) return { url, ok: false, error: 'connexion OnSpot demandée', text: '' };
+      if (page?.text && last && page.text.length === last.text.length && page.text.length > 150) return { url, ok: true, ...page };
+      last = page || last;
+      await sleep(700);
+    }
+    return last?.text ? { url, ok: true, ...last } : { url, ok: false, error: 'page vide', text: '' };
+  } catch (err) {
+    return { url, ok: false, error: err.message, text: '' };
+  } finally {
+    if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+// Fonction injectée dans l'onglet du ticket.
+function readTicketPage() {
+  if (/\/(?:login|sign-?in|auth)\b/i.test(location.pathname)) return { loginRequired: true };
+  const main = document.querySelector('main#main-content, main') || document.body;
+  // Déplie les messages repliés (« Afficher plus », « Voir tout »…) : simples boutons d'affichage.
+  Array.from(main.querySelectorAll('button')).filter((el) => /^(?:Afficher|Voir|Show|Lire)\s+(?:plus|more|tout|all|la suite)/i.test((el.innerText || '').trim())).slice(0, 10).forEach((el) => { try { el.click(); } catch (e) {} });
+  const text = (main.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return { title: (document.querySelector('h1')?.innerText || document.title || '').trim(), text: text.slice(0, 15000), truncated: text.length > 15000 };
+}
 
 // -------------------------------------------------------------------------
 // 2 · Exports
@@ -291,7 +357,7 @@ function extractDomSkeleton() {
 // =========================================================================
 // Fonction injectée dans la page active — extraction PAR ONGLET
 // =========================================================================
-function extractPageContentPerTabAndFiles(scope = 'trip_only') {
+function extractPageContentPerTabAndFiles(scope = 'trip_only', openReminderDetails = false) {
   return new Promise(async (resolve) => {
     const mainTabDefs = [
       { key: 'itineraireMain', labels: ['Itinéraire', 'Itinerary'] }
@@ -655,19 +721,9 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         return true;
       } catch (e) { return false; }
     }
-    if (ticketScope) {
-      const current = isTicketPage ? extractCurrentTicket() : null;
-      const ticketSectionRevealed = isTicketPage || await revealTicketsSection();
-      const visible = extractVisibleTicketCards();
-      const opened = !isTicketPage && scope === 'trip_and_all_tickets' ? await openAndReadTicketCards() : [];
-      const paginatedTickets = !isTicketPage && scope === 'trip_and_all_tickets' ? await walkVisibleTicketPages() : [];
-      const mergedVisible = [...opened, ...(paginatedTickets.length ? paginatedTickets : visible)];
-
-      tickets = mergedVisible.length ? mergedVisible : (current ? [current] : []);
-      if (!tickets.length) collectionWarning = 'Aucun ticket exploitable n’a été trouvé dans la page courante pour ce périmètre.';
-      else if (!ticketSectionRevealed && !isTicketPage) collectionWarning = 'La section Tickets n’a pas pu être ouverte ; seuls les éléments déjà visibles ont été conservés.';
-      else if (scope === 'trip_and_all_tickets' && !isTicketPage) collectionWarning = 'Les tickets visibles et les pages de pagination détectées ont été capturés ; les tickets non chargés dans le DOM ne sont pas devinés.';
-    }
+    // Les tickets ne sont plus ouverts dans la page : le popup les lit un par un dans un onglet d'arrière-plan
+    // (readTicketsInBackground), pour que l'agent reste sur sa Trip Card et qu'aucune autre page ne soit visitée.
+    if (ticketScope && isTicketPage) tickets = [extractCurrentTicket()];
     const ticket = tickets[0] || null;
 
     const itinerary = {};
@@ -754,7 +810,33 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         }),
       }));
       const reminderSection = sectionByHeading(/^Reminders\b|^Rappels\b/i);
-      const reminders = reminderSection ? Array.from(reminderSection.querySelectorAll('ul > li')).map((li) => leafTexts(li)).filter((lines) => lines.length) : [];
+      const leafItems = () => (reminderSection ? Array.from(reminderSection.querySelectorAll('li')).filter((li) => !li.querySelector('li')) : []);
+      const isShown = (el) => !el.closest('[hidden],[aria-hidden="true"]') && el.getClientRects().length > 0;
+      const activeItems = new Set(leafItems().filter(isShown));
+      // Déplie la liste « Completed (N) » (simple bouton d'affichage) pour lire aussi les rappels déjà faits.
+      if (reminderSection && scope === 'trip_and_all_tickets') {
+        const toggle = Array.from(reminderSection.querySelectorAll('button[aria-expanded="false"]')).find((el) => /Completed|Termin/i.test(flat(el)));
+        if (toggle) { try { toggle.click(); await sleep(450); } catch (e) {} }
+      }
+      const reminderItems = leafItems();
+      const reminders = [];
+      for (const li of reminderItems) {
+        const lines = leafTexts(li);
+        if (!lines.length) continue;
+        const completed = !activeItems.has(li);
+        let detail = [];
+        if (openReminderDetails) {
+          const before = new Set(document.querySelectorAll('[role="dialog"]'));
+          try { (li.querySelector('button') || li).click(); await sleep(600); } catch (e) {}
+          const dialog = Array.from(document.querySelectorAll('[role="dialog"]')).find((el) => !before.has(el));
+          if (dialog) {
+            detail = leafTexts(dialog).filter((text) => !lines.includes(text));
+            const close = Array.from(dialog.querySelectorAll('button')).find((el) => /^(?:Fermer|Close|Annuler|Cancel|×)$/i.test(flat(el) || el.getAttribute('aria-label') || ''));
+            try { if (close) close.click(); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(300); } catch (e) {}
+          }
+        }
+        reminders.push({ lines, completed, detail });
+      }
       const completedReminders = reminderSection ? (flat(reminderSection).match(/Completed\s*\(\s*(\d+)\s*\)|Terminés?\s*\(\s*(\d+)\s*\)/i) || []).slice(1).find(Boolean) || null : null;
       const travelerSection = sectionByHeading(/^Voyageurs\b|^Travell?ers\b/i);
       const travelers = travelerSection ? Array.from(travelerSection.querySelectorAll('p.font-medium')).map((nameEl) => {

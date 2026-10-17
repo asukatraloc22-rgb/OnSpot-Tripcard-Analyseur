@@ -227,8 +227,14 @@ export function buildCompactDossier({ pageData, pdfTexts = [], docxTexts = [], x
   push('## 4. Interne — OnSpot uniquement', ...(internal.length ? internal : ['(vide)']), '');
   push('## 5. Rappels déjà en place (heure de l’agent, puis heure dans le fuseau indiqué)');
   if (st?.reminders?.length) {
-    st.reminders.forEach(reminder => push(`- ${reminder.join(' · ')}`));
-    if (st.completedReminders) push(`- (${st.completedReminders} rappel(s) déjà terminé(s), non détaillés)`);
+    // Format 2.4 : tableau de lignes ; format 2.5 : { lines, completed, detail }.
+    const items = st.reminders.map(reminder => (Array.isArray(reminder) ? { lines: reminder, completed: false, detail: [] } : reminder));
+    const active = items.filter(item => !item.completed);
+    const done = items.filter(item => item.completed);
+    const render = item => push(`- ${item.lines.join(' · ')}${item.detail?.length ? `\n  Détail : ${item.detail.join(' · ').slice(0, 800)}` : ''}`);
+    if (active.length) { push('À venir :'); active.forEach(render); }
+    if (done.length) { push('Terminés :'); done.forEach(render); }
+    else if (st.completedReminders) push(`- (${st.completedReminders} rappel(s) déjà terminé(s), non détaillés : choisir le périmètre « compte rendu » pour les lire)`);
   } else push(...(block('rappels').length ? block('rappels').map(line => `- ${line}`) : ['(aucun rappel visible)']));
   push('');
   const services = st?.services?.length ? st.services : block('services');
@@ -262,6 +268,17 @@ export function buildCompactDossier({ pageData, pdfTexts = [], docxTexts = [], x
         push(`- [${header}] ${ticketLines[hashIndex]}`, body ? `  ${body.slice(0, 1500)}` : '');
       });
     } else push('(aucun ticket visible)');
+  }
+  if (Array.isArray(pageData.ticketPages) && pageData.ticketPages.length) {
+    push('', '### Conversations complètes des tickets (lues une par une)');
+    pageData.ticketPages.forEach((page, index) => {
+      push('', `#### Ticket ${index + 1}${page.title ? ` · ${page.title}` : ''}`);
+      if (!page.ok) { push(`⚠ Non lu : ${page.error}`); warnings.push(`Ticket ${index + 1} non lu (${page.error}).`); return; }
+      // Retire les lignes de navigation et les lignes vides répétées ; garde l'ordre de la conversation.
+      const kept = lines(page.text).filter(line => !NAV_LINES.has(line) && !/^(?:Répondre|Reply|Envoyer|Send|Joindre|Attach|Afficher (?:plus|moins)|Voir (?:plus|moins|tout)|Show (?:more|less))$/i.test(line));
+      push(kept.join('\n'));
+      if (page.truncated) warnings.push(`Ticket ${index + 1} très long : conversation tronquée à 15 000 caractères.`);
+    });
   }
   if (Array.isArray(pageData.tickets) && pageData.tickets.length) {
     push('', '### Tickets ouverts par l’extension');

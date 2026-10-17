@@ -1,4 +1,14 @@
-# OnSpot Audit Assistant — extension Chrome v2.4.0
+# OnSpot Audit Assistant — extension Chrome v2.5.0
+
+## Nouveau en 2.5.0 : compte rendu de dossier pour l'agence
+
+Choisis le périmètre **Compte rendu (tickets + rappels)** puis **Capturer** :
+
+- chaque ticket de la Trip Card est ouvert dans un onglet d'arrière-plan, lu en entier (messages repliés dépliés) puis refermé. L'onglet de la Trip Card ne bouge pas ;
+- les rappels terminés (Welcome Call, Here For You, reconfirmations, boarding pass, Goodbye Call…) sont dépliés et lus avec les rappels à venir ;
+- l'option **Ouvrir aussi le détail de chaque rappel** clique sur chaque rappel pour lire sa fenêtre de détail, puis la referme sans rien modifier. Elle est désactivée par défaut : à tester d'abord sur un dossier.
+
+Le dossier compact contient alors une section « Conversations complètes des tickets ». Colle-le dans le Gem décrit dans `prompts/gem-compte-rendu.md` : il rédige le compte rendu pour l'agence (date, sujet, gestion, état d'esprit du client, résolution).
 
 ## Nouveau en 2.4.0 : lecture structurée de la carte OnSpot
 
