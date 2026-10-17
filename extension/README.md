@@ -1,4 +1,34 @@
-# OnSpot Audit Assistant — extension Chrome v2.1.0
+# OnSpot Audit Assistant — extension Chrome v2.5.0
+
+## Nouveau en 2.5.0 : compte rendu de dossier pour l'agence
+
+Choisis le périmètre **Compte rendu (tickets + rappels)** puis **Capturer** :
+
+- chaque ticket de la Trip Card est ouvert dans un onglet d'arrière-plan, lu en entier (messages repliés dépliés) puis refermé. L'onglet de la Trip Card ne bouge pas ;
+- les rappels terminés (Welcome Call, Here For You, reconfirmations, boarding pass, Goodbye Call…) sont dépliés et lus avec les rappels à venir ;
+- l'option **Ouvrir aussi le détail de chaque rappel** clique sur chaque rappel pour lire sa fenêtre de détail, puis la referme sans rien modifier. Elle est désactivée par défaut : à tester d'abord sur un dossier.
+
+Le dossier compact contient alors une section « Conversations complètes des tickets ». Colle-le dans le Gem décrit dans `prompts/gem-compte-rendu.md` : il rédige le compte rendu pour l'agence (date, sujet, gestion, état d'esprit du client, résolution).
+
+## Nouveau en 2.4.0 : lecture structurée de la carte OnSpot
+
+Calée sur le diagnostic de structure d'octobre 2026, l'extension lit directement l'itinéraire jour par jour (`[data-itin-scroll] li[data-date-key]`, lignes `[data-testid=itinerary-row-body]` : type, heure, titre, détails, voucher lié, statut), ainsi que le bandeau, les rappels, les voyageurs et leurs contacts, les notes, la note interne, les services et les cartes de tickets. Si ce balisage change, l'extension retombe sur l'ancienne lecture du texte de la page.
+
+## Nouveau en 2.3.0 : le dossier compact pour Gemini / Claude
+
+Après **Capturer**, l'extension affiche un résumé (voyageurs, vouchers lus, onglets d'itinéraire, taille estimée en tokens, limites de la capture) et propose **Copier le dossier pour Gemini / Claude**. Ce dossier Markdown (`compact.js`) :
+
+- ne garde qu'une fois la fiche, les voyageurs et leurs contacts, les notes d'agence, la note interne, les rappels, les services et les tickets ;
+- retire la coque OnSpot répétée dans chaque onglet d'itinéraire ;
+- réduit chaque voucher aux phrases qui portent un fait (date, heure, référence, RDV, contact), supprime les mentions légales et les répétitions entre documents, et place le carnet de voyage en dernier ;
+- signale les vouchers sans texte lisible (PDF scannés) et les autres limites de capture.
+
+Sur le Trip 2120026733 (Italie, 21 vouchers), le volume passe d'environ 40 000 à 10 000 tokens. Les instructions du Gem sont dans `prompts/gem-auditeur-elite.md`. Pour rejouer la compaction sur un export JSON existant : `node scripts/compact-smoke.mjs export.json dossier.md`.
+
+Le lien **Diagnostic de structure** télécharge le squelette de la page OnSpot (balises, rôles, onglets), avec les emails, téléphones, références et noms de voyageurs masqués. Il sert à caler l'extraction quand un onglet n'est pas trouvé.
+
+Les boutons JSON restent disponibles pour la web app et TripCard ELITE.
+
 
 Cette extension est destinée à un **usage personnel local** avec TripCard ELITE. Elle ne contient ni authentification, ni API, ni envoi automatique de données. Elle lit uniquement l’onglet OnSpot actif lorsque vous cliquez sur **« Capturer le périmètre »** et prépare un paquet JSON local, versionné et importable.
 

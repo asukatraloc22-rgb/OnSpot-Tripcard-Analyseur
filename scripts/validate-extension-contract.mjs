@@ -13,7 +13,7 @@ const failures = [];
 const assert = (condition, message) => { if (!condition) failures.push(message); };
 
 assert(manifest.manifest_version === 3, "Le manifeste doit rester en Manifest V3.");
-assert(manifest.version === "2.2.0", "La version du manifeste doit être 2.2.0.");
+assert(manifest.version === "2.5.0", "La version du manifeste doit être 2.5.0.");
 for (const scope of requiredScopes) assert(popup.includes(scope), `Le périmètre ${scope} n’est pas présent dans popup.js.`);
 for (const key of requiredEliteKeys) assert(popup.includes(key), `Le champ Elite ${key} n’est pas présent dans popup.js.`);
 assert(popup.includes("visibleOnly: true"), "Le paquet doit déclarer que la collecte est limitée aux éléments visibles.");
@@ -21,6 +21,8 @@ assert(popup.includes("isLikelyTravelerName"), "L’extraction doit filtrer les 
 assert(popup.includes("serviceTabs"), "Les prestations doivent être fusionnées depuis les onglets spécialisés.");
 assert(popup.includes("startDate: serviceDates[0]"), "L’export doit fournir une date de début dérivée des prestations.");
 assert(popup.includes("forcedSection"), "L’extracteur doit pouvoir traiter un onglet spécialisé sans son titre dans le DOM.");
+assert(popup.includes("buildCompactDossier"), "Le popup doit produire le dossier compact.");
+assert(popup.includes("extractDomSkeleton"), "Le popup doit proposer le diagnostic de structure.");
 assert(fixture.schemaVersion === "3.1.0", "Le fixture doit utiliser le contrat v3.1.0.");
 assert(Array.isArray(fixture.tickets) && fixture.tickets.length === 1, "Le fixture doit contenir un ticket.");
 assert(fixture.tickets[0]?.statusTransitions?.length === 2, "Le ticket de fixture doit conserver les deux transitions de statut.");

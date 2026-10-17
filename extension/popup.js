@@ -3,28 +3,41 @@
 // =========================================================================
 
 import * as pdfjsLib from './pdf.mjs';
+import { buildCompactDossier } from './compact.js';
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const analyzeBtn = document.getElementById('analyzeBtn');
+const copyCompactBtn = document.getElementById('copyCompactBtn');
+const downloadCompactBtn = document.getElementById('downloadCompactBtn');
 const copyTripCardBtn = document.getElementById('copyTripCardBtn');
 const downloadTripCardBtn = document.getElementById('downloadTripCardBtn');
+const diagnosticBtn = document.getElementById('diagnosticBtn');
 const statusBox = document.getElementById('status');
+const summaryBox = document.getElementById('summary');
 const captureScope = document.getElementById('captureScope');
 const scopeHelp = document.getElementById('scopeHelp');
+const versionTag = document.getElementById('versionTag');
+const openDetailsBox = document.getElementById('openReminderDetails');
+const reportOptions = document.getElementById('reportOptions');
+if (versionTag) versionTag.textContent = `v${EXTENSION_VERSION}`;
 
 const scopeLabels = {
   trip_only: 'Voyage uniquement',
-  trip_and_all_tickets: 'Voyage + tous les tickets'
+  trip_and_all_tickets: 'Compte rendu : voyage + tickets + rappels'
 };
 const scopeHelpText = {
-  trip_only: 'Métadonnées, itinéraire, vouchers et documents visibles.',
-  trip_and_all_tickets: 'Capture le voyage puis ouvre séquentiellement chaque ticket lié pour récupérer échanges, statut, rappels et pièces jointes.'
+  trip_only: 'Fiche, voyageurs, notes, rappels, tickets visibles, itinéraire et vouchers.',
+  trip_and_all_tickets: 'Lit en plus chaque ticket dans un onglet d’arrière-plan (tu restes sur la Trip Card) et tous les rappels, y compris terminés.'
 };
-if (captureScope && scopeHelp) {
-  captureScope.addEventListener('change', () => { scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only; });
+function syncScopeUi() {
+  if (scopeHelp) scopeHelp.textContent = scopeHelpText[captureScope.value] || scopeHelpText.trip_only;
+  if (reportOptions) reportOptions.hidden = captureScope.value !== 'trip_and_all_tickets';
 }
+if (captureScope) { captureScope.addEventListener('change', syncScopeUi); syncScopeUi(); }
 
-let lastResult = null; // conserve le dernier résultat d'analyse pour les deux boutons
+let lastResult = null; // dernier résultat de capture, partagé par tous les boutons d'export
+let lastCompact = null;
 
 function logStatus(message, type = 'info') {
   const line = document.createElement('div');
@@ -34,134 +47,317 @@ function logStatus(message, type = 'info') {
   statusBox.scrollTop = statusBox.scrollHeight;
 }
 function clearStatus() { statusBox.innerHTML = ''; }
-function setLoading(btn, isLoading, label, defaultLabel) {
+const exportButtons = [copyCompactBtn, downloadCompactBtn, copyTripCardBtn, downloadTripCardBtn];
+function setExportsEnabled(enabled) { exportButtons.forEach(button => { if (button) button.disabled = !enabled; }); }
+function setLoading(btn, isLoading, label) {
   analyzeBtn.disabled = isLoading;
-  copyTripCardBtn.disabled = isLoading;
-  downloadTripCardBtn.disabled = isLoading;
-  if (isLoading) btn.innerHTML = `<span class="spinner"></span>${label}`;
-  else btn.textContent = defaultLabel;
+  diagnosticBtn.disabled = isLoading;
+  if (isLoading) setExportsEnabled(false);
+  if (!btn.dataset.idle) btn.dataset.idle = btn.innerHTML;
+  btn.innerHTML = isLoading ? `<span class="spinner"></span>${label}` : btn.dataset.idle;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+function downloadText(content, filename, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+function fileSlug(value) { return String(value || 'export').replace(/[^\w-]+/g, '_'); }
+
+function renderSummary(stats) {
+  const readable = stats.vouchers - stats.unreadable.length;
+  summaryBox.hidden = false;
+  summaryBox.innerHTML = `
+    <div class="sum-head"><b>${escapeHtml(stats.reference)}</b><span>${escapeHtml(stats.dates || 'dates non visibles')}</span></div>
+    <div class="sum-grid">
+      <div><span>Voyageurs</span><b>${stats.travelers.length}</b></div>
+      <div><span>Vouchers lus</span><b>${readable}/${stats.vouchers}</b></div>
+      <div><span>Prestations</span><b>${stats.itineraryRows || stats.itineraryTabs}</b></div>
+      <div><span>Taille</span><b>≈ ${Math.round(stats.tokens / 100) / 10}k</b><small>tokens</small></div>
+    </div>
+    ${stats.travelers.length ? `<p class="sum-line">${stats.travelers.map(escapeHtml).join(' · ')}</p>` : ''}
+    ${stats.warnings.length ? `<ul class="sum-warn">${stats.warnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<p class="sum-ok">Capture complète, aucune limite détectée.</p>'}`;
 }
 
 // -------------------------------------------------------------------------
-// BOUTON 1 : Analyser Page + Vouchers
+// 1 · Capturer le dossier
 // -------------------------------------------------------------------------
 analyzeBtn.addEventListener('click', async () => {
   clearStatus();
-  setLoading(analyzeBtn, true, 'Ouverture de la page...', 'Analyser Page + Vouchers');
+  summaryBox.hidden = true;
+  lastResult = null;
+  lastCompact = null;
+  setLoading(analyzeBtn, true, 'Lecture de la page…');
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("Impossible de récupérer l'onglet actif.");
 
     const scope = captureScope?.value || 'trip_only';
-    logStatus(`Onglet actif détecté : ${tab.url}`, 'info');
+    logStatus(`Page : ${tab.url}`, 'info');
     logStatus(`Périmètre : ${scopeLabels[scope] || scope}`, 'info');
-    setLoading(analyzeBtn, true, 'Extraction du périmètre...', 'Capturer le périmètre');
 
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: extractPageContentPerTabAndFiles,
-      args: [scope],
+      args: [scope, Boolean(openDetailsBox?.checked)],
     });
 
     const pageData = injectionResult.result;
     if (!pageData) throw new Error("Aucune donnée retournée depuis la page.");
 
-    logStatus(`Contenu extrait pour ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length} onglet(s) d'itinéraire.`, 'ok');
-    if (pageData.tickets?.length) logStatus(`${pageData.tickets.length} ticket(s) capturé(s) selon le périmètre choisi.`, 'ok');
+    logStatus(`Onglets d'itinéraire lus : ${Object.keys(pageData.itinerary).filter(k => pageData.itinerary[k]).length}.`, 'ok');
+    (pageData.tabDiagnostics || []).filter(entry => !entry.found).forEach(entry => logStatus(`  onglet « ${entry.key} » introuvable`, 'warn'));
+    if (pageData.tickets?.length) logStatus(`${pageData.tickets.length} ticket(s) ouvert(s).`, 'ok');
     if (pageData.collectionWarning) logStatus(`⚠ ${pageData.collectionWarning}`, 'warn');
-    logStatus(`${pageData.pdfUrls.length} PDF(s), ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s) détecté(s).`, 'info');
+    logStatus(`${pageData.pdfUrls.length} PDF, ${pageData.docxUrls.length} DOCX, ${pageData.xlsxUrls.length} XLSX, ${pageData.imageUrls.length} image(s).`, 'info');
 
-    // PDF
+    if (scope === 'trip_and_all_tickets') {
+      const reminders = pageData.structured?.reminders || [];
+      logStatus(`Rappels lus : ${reminders.filter(item => !item.completed).length} à venir, ${reminders.filter(item => item.completed).length} terminé(s).`, 'ok');
+      const ticketUrls = Array.from(new Set((pageData.structured?.tickets || []).map(ticket => ticket.href).filter(Boolean)));
+      pageData.ticketPages = [];
+      for (let i = 0; i < ticketUrls.length; i++) {
+        setLoading(analyzeBtn, true, `Ticket ${i + 1}/${ticketUrls.length}…`);
+        const page = await readTicketInBackground(ticketUrls[i]);
+        pageData.ticketPages.push(page);
+        logStatus(page.ok ? `✓ Ticket ${i + 1} lu (${page.text.length} car.)` : `✗ Ticket ${i + 1} : ${page.error}`, page.ok ? 'ok' : 'err');
+      }
+    }
+
     const pdfTexts = [];
     for (let i = 0; i < pageData.pdfUrls.length; i++) {
-      setLoading(analyzeBtn, true, `PDF ${i + 1}/${pageData.pdfUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `PDF ${i + 1}/${pageData.pdfUrls.length}…`);
       try {
         const text = await extractPdfTextFromUrl(pageData.pdfUrls[i]);
         pdfTexts.push({ url: pageData.pdfUrls[i], text });
-        logStatus(`✓ PDF ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ PDF ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ PDF ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ PDF ${i + 1} : ${err.message}`, 'err');
         pdfTexts.push({ url: pageData.pdfUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    // DOCX
     const docxTexts = [];
     for (let i = 0; i < pageData.docxUrls.length; i++) {
-      setLoading(analyzeBtn, true, `DOCX ${i + 1}/${pageData.docxUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `DOCX ${i + 1}/${pageData.docxUrls.length}…`);
       try {
         const text = await extractDocxTextFromUrl(pageData.docxUrls[i]);
         docxTexts.push({ url: pageData.docxUrls[i], text });
-        logStatus(`✓ DOCX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ DOCX ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ DOCX ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ DOCX ${i + 1} : ${err.message}`, 'err');
         docxTexts.push({ url: pageData.docxUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    // XLSX
     const xlsxTexts = [];
     for (let i = 0; i < pageData.xlsxUrls.length; i++) {
-      setLoading(analyzeBtn, true, `XLSX ${i + 1}/${pageData.xlsxUrls.length}...`, 'Analyser Page + Vouchers');
+      setLoading(analyzeBtn, true, `XLSX ${i + 1}/${pageData.xlsxUrls.length}…`);
       try {
         const text = await extractXlsxTextFromUrl(pageData.xlsxUrls[i]);
         xlsxTexts.push({ url: pageData.xlsxUrls[i], text });
-        logStatus(`✓ XLSX ${i + 1} extrait (${text.length} caractères).`, 'ok');
+        logStatus(`✓ XLSX ${i + 1} (${text.length} car.)`, 'ok');
       } catch (err) {
-        logStatus(`✗ XLSX ${i + 1} échec : ${err.message}`, 'err');
+        logStatus(`✗ XLSX ${i + 1} : ${err.message}`, 'err');
         xlsxTexts.push({ url: pageData.xlsxUrls[i], text: '[ERREUR extraction]' });
       }
     }
 
-    if (pageData.imageUrls.length > 0) {
-      logStatus(`⚠ Images détectées (à vérifier à l'œil) :`, 'info');
-      pageData.imageUrls.forEach((u, i) => logStatus(`  [img ${i + 1}] ${u}`, 'info'));
-    }
-
     lastResult = { pageData, pdfTexts, docxTexts, xlsxTexts };
-    const structured = buildTripCardPayload(lastResult);
-    logStatus(`✓ JSON structuré prêt : ${structured.services.length} prestation(s), ${structured.documents.length} document(s).`, 'ok');
-    logStatus('Utilise Copier ou Télécharger pour importer ce dossier dans TripCard ELITE.', 'info');
-
+    lastCompact = buildCompactDossier({ ...lastResult, version: `v${EXTENSION_VERSION}` });
+    renderSummary(lastCompact.stats);
+    setExportsEnabled(true);
+    logStatus(`✓ Dossier compact prêt (≈ ${lastCompact.stats.tokens} tokens, contre ≈ ${Math.round(lastCompact.stats.rawChars / 3.6)} en brut).`, 'ok');
   } catch (err) {
     console.error(err);
     logStatus('Erreur : ' + err.message, 'err');
   } finally {
-    setLoading(analyzeBtn, false, '', 'Analyser Page + Vouchers');
+    setLoading(analyzeBtn, false);
+    setExportsEnabled(Boolean(lastCompact));
   }
 });
 
 // -------------------------------------------------------------------------
-// BOUTON 2 : Copier pour Trip Card Elite (JSON structuré)
+// Tickets : chaque ticket est ouvert dans un onglet d'arrière-plan, lu, puis fermé.
+// L'onglet de l'agent ne bouge pas et aucune autre page n'est visitée.
 // -------------------------------------------------------------------------
-copyTripCardBtn.addEventListener('click', async () => {
-  if (!lastResult) {
-    logStatus('⚠ Lance d\'abord "Analyser Page + Vouchers".', 'err');
-    return;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function waitForTabComplete(tabId, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(false); }, timeoutMs);
+    function listener(id, info) {
+      if (id === tabId && info.status === 'complete') { clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve(true); }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function readTicketInBackground(url) {
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url, active: false });
+    await waitForTabComplete(tab.id);
+    let last = null;
+    // La page est une application : on attend que la conversation soit affichée (texte stable).
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readTicketPage });
+      const page = result?.result;
+      if (page?.loginRequired) return { url, ok: false, error: 'connexion OnSpot demandée', text: '' };
+      if (page?.text && last && page.text.length === last.text.length && page.text.length > 150) return { url, ok: true, ...page };
+      last = page || last;
+      await sleep(700);
+    }
+    return last?.text ? { url, ok: true, ...last } : { url, ok: false, error: 'page vide', text: '' };
+  } catch (err) {
+    return { url, ok: false, error: err.message, text: '' };
+  } finally {
+    if (tab?.id) chrome.tabs.remove(tab.id).catch(() => {});
   }
+}
+
+// Fonction injectée dans l'onglet du ticket.
+function readTicketPage() {
+  if (/\/(?:login|sign-?in|auth)\b/i.test(location.pathname)) return { loginRequired: true };
+  const main = document.querySelector('main#main-content, main') || document.body;
+  // Déplie les messages repliés (« Afficher plus », « Voir tout »…) : simples boutons d'affichage.
+  Array.from(main.querySelectorAll('button')).filter((el) => /^(?:Afficher|Voir|Show|Lire)\s+(?:plus|more|tout|all|la suite)/i.test((el.innerText || '').trim())).slice(0, 10).forEach((el) => { try { el.click(); } catch (e) {} });
+  const text = (main.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return { title: (document.querySelector('h1')?.innerText || document.title || '').trim(), text: text.slice(0, 15000), truncated: text.length > 15000 };
+}
+
+// -------------------------------------------------------------------------
+// 2 · Exports
+// -------------------------------------------------------------------------
+copyCompactBtn.addEventListener('click', async () => {
+  if (!lastCompact) return;
+  await navigator.clipboard.writeText(lastCompact.text);
+  logStatus('✅ Dossier copié. Colle-le dans ton Gem (ou ta conversation Claude).', 'ok');
+});
+
+downloadCompactBtn.addEventListener('click', () => {
+  if (!lastCompact) return;
+  downloadText(lastCompact.text, `dossier-${fileSlug(lastCompact.stats.reference)}-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
+  logStatus('✓ Dossier .md téléchargé.', 'ok');
+});
+
+copyTripCardBtn.addEventListener('click', async () => {
+  if (!lastResult) return;
   const payload = buildTripCardPayload(lastResult);
   await navigator.clipboard.writeText(JSON.stringify(payload));
-  logStatus('✅ JSON TripCard ELITE copié. Va sur l’outil puis clique « Coller depuis le presse-papiers ».', 'ok');
+  logStatus('✅ JSON complet copié (web app / TripCard ELITE).', 'ok');
 });
 
 downloadTripCardBtn.addEventListener('click', () => {
-  if (!lastResult) { logStatus('⚠ Lance d’abord l’analyse de la TripCard.', 'err'); return; }
+  if (!lastResult) return;
   const payload = buildTripCardPayload(lastResult);
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `onspot-tripcard-${payload.reference || 'export'}-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  logStatus('✓ Fichier JSON téléchargé. Il peut être importé directement dans TripCard ELITE.', 'ok');
+  downloadText(JSON.stringify(payload, null, 2), `onspot-tripcard-${fileSlug(payload.reference)}-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+  logStatus('✓ JSON complet téléchargé.', 'ok');
 });
+
+// -------------------------------------------------------------------------
+// Diagnostic : squelette de la page (balises, rôles, onglets) sans les données client,
+// pour caler l'extraction sur la structure réelle d'OnSpot.
+// -------------------------------------------------------------------------
+diagnosticBtn.addEventListener('click', async () => {
+  clearStatus();
+  setLoading(diagnosticBtn, true, 'Diagnostic…');
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [injectionResult] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractDomSkeleton });
+    const report = injectionResult.result || '';
+    downloadText(`OnSpot Audit Assistant v${EXTENSION_VERSION} · diagnostic de structure\n${report}`, `diagnostic-structure-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`, 'text/plain');
+    logStatus(`✓ Diagnostic téléchargé (${report.split('\n').length} lignes). Les emails, téléphones, numéros et noms de voyageurs sont masqués ; jette un œil avant de l'envoyer.`, 'ok');
+  } catch (err) {
+    logStatus('Erreur diagnostic : ' + err.message, 'err');
+  } finally {
+    setLoading(diagnosticBtn, false);
+  }
+});
+
+function extractDomSkeleton() {
+  return new Promise(async (resolve) => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const MAX_LINES = 5000;
+    // Noms des voyageurs repérés sur la page (civilité + prénom + nom) : masqués partout.
+    const personWords = new Set();
+    for (const match of (document.body.innerText || '').matchAll(/\b(?:M\.|Mme|Mr\.?|Mrs\.?|Ms\.?|Mlle)\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+)(?:\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+))?/g)) [match[1], match[2]].filter((word) => word && word.length > 2).forEach((word) => personWords.add(word));
+    const personPattern = personWords.size ? new RegExp(`\\b(?:${Array.from(personWords).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'g') : null;
+    const mask = (text) => {
+      let value = String(text || '')
+        .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]')
+        .replace(/\+?\d[\d ()./-]{6,}\d/g, '[tel]')
+        .replace(/\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,}\b/g, '[ref]')
+        .replace(/\b\d{4,}\b/g, '[n]');
+      if (personPattern) value = value.replace(personPattern, '[voyageur]');
+      return value;
+    };
+    const visible = (el) => { const style = getComputedStyle(el); return style.display !== 'none' && style.visibility !== 'hidden'; };
+    // Seuls les libellés courts (titres, onglets, boutons) sont conservés ; les textes longs (messages, notes) sont résumés par leur longueur.
+    const ownText = (el) => {
+      const text = Array.from(el.childNodes).filter((node) => node.nodeType === 3).map((node) => node.textContent).join(' ').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      return text.length <= 40 ? mask(text) : `[texte ${text.length} car.]`;
+    };
+    const describe = (el) => {
+      const parts = [el.tagName.toLowerCase()];
+      if (el.id) parts.push(`#${el.id}`);
+      const classes = Array.from(el.classList).slice(0, 5);
+      if (classes.length) parts.push(`.${classes.join('.')}`);
+      const attrs = [];
+      for (const attr of Array.from(el.attributes)) {
+        if (/^(?:role|aria-(?:label|selected|controls|expanded|current)|data-[\w-]+|type|name)$/.test(attr.name)) attrs.push(`${attr.name}=${mask(attr.value).slice(0, 40)}`);
+        if (attr.name === 'href') attrs.push(`href=${mask(attr.value.replace(/^https?:\/\/[^/]+/, '').replace(/[a-z]+_[0-9a-z]{20,}/gi, ':id')).slice(0, 60)}`);
+      }
+      if (attrs.length) parts.push(`[${attrs.join(' ')}]`);
+      return parts.join('');
+    };
+    const skeleton = (root) => {
+      const out = [];
+      const walk = (el, depth) => {
+        if (out.length >= MAX_LINES || /^(?:SCRIPT|STYLE|SVG|PATH|NOSCRIPT|TEMPLATE|LINK|META)$/i.test(el.tagName) || !visible(el)) return;
+        const text = ownText(el);
+        const children = Array.from(el.children);
+        const interesting = text || el.id || el.getAttribute('role') || Array.from(el.attributes).some((attr) => /^(?:data-|aria-)/.test(attr.name)) || /^(?:BUTTON|A|H\d|SECTION|NAV|MAIN|ASIDE|HEADER|UL|LI|TABLE|TR|INPUT|LABEL)$/.test(el.tagName) || children.length > 1;
+        if (interesting) out.push(`${'  '.repeat(Math.min(depth, 30))}${describe(el)}${text ? ` "${text}"` : ''}`);
+        children.forEach((child) => walk(child, interesting ? depth + 1 : depth));
+      };
+      walk(root, 0);
+      if (out.length >= MAX_LINES) out.push('… (tronqué)');
+      return out.join('\n');
+    };
+    const tabCandidates = () => Array.from(document.querySelectorAll('[role="tab"], button, a, li'))
+      .filter((el) => visible(el) && (el.textContent || '').trim() && (el.textContent || '').trim().length <= 30)
+      .map((el) => `${describe(el)} "${mask((el.textContent || '').trim())}"`)
+      .slice(0, 150);
+
+    const sections = [];
+    sections.push(`URL : ${mask(location.pathname.replace(/[a-z]+_[0-9a-z]{20,}/gi, ':id'))}`);
+    sections.push(`\n===== VUE INITIALE · éléments cliquables courts =====\n${tabCandidates().join('\n')}`);
+    sections.push(`\n===== VUE INITIALE · squelette =====\n${skeleton(document.body)}`);
+
+    const findByText = (labels) => Array.from(document.querySelectorAll('[role="tab"], button, a, li, div, span'))
+      .find((el) => visible(el) && labels.includes((el.textContent || '').trim().toLowerCase()));
+    const itineraryTab = findByText(['itinéraire', 'itinerary']);
+    if (itineraryTab) {
+      try { itineraryTab.click(); await sleep(900); } catch (e) {}
+      sections.push(`\n===== APRÈS CLIC « Itinéraire » · éléments cliquables courts =====\n${tabCandidates().join('\n')}`);
+      sections.push(`\n===== APRÈS CLIC « Itinéraire » · squelette =====\n${skeleton(document.body)}`);
+    } else sections.push('\n(onglet « Itinéraire » introuvable)');
+    resolve(sections.join('\n'));
+  });
+}
 
 // =========================================================================
 // Fonction injectée dans la page active — extraction PAR ONGLET
 // =========================================================================
-function extractPageContentPerTabAndFiles(scope = 'trip_only') {
+function extractPageContentPerTabAndFiles(scope = 'trip_only', openReminderDetails = false) {
   return new Promise(async (resolve) => {
     const mainTabDefs = [
       { key: 'itineraireMain', labels: ['Itinéraire', 'Itinerary'] }
@@ -209,7 +405,9 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         const style = window.getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden' && (element.innerText || '').trim();
       });
       const panel = unique.sort((a, b) => (b.innerText || '').length - (a.innerText || '').length)[0];
-      return (panel?.innerText || '').trim();
+      if (panel) return (panel.innerText || '').trim();
+      // OnSpot (2026) n'a pas de role=tabpanel : la liste filtrée de l'itinéraire vit dans [data-itin-scroll].
+      return (document.querySelector('[data-itin-scroll]')?.innerText || '').trim();
     }
 
     async function clickAndReadTab(tab, fallback = '') {
@@ -229,6 +427,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function isLikelyTravelerName(value) {
       const name = cleanTravelerName(value);
       if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
+      if (/\b(?:call|rappel|reminder|compte rendu|boarding|welcome|goodbye|good bye|here for you|haute valeur|completed)\b/i.test(name)) return false;
       if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
       const words = name.split(/\s+/).filter(Boolean);
       return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
@@ -320,6 +519,7 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
     function classify(url) {
       const value = String(url || '').trim();
       if (!value || /^chrome-extension:\/\/invalid(?:\/|$)/i.test(value) || /^chrome-extension:\/\//i.test(value) || /^data:/i.test(value) || /^blob:/i.test(value)) return;
+      if (/USER_AVATAR|\/avatar\.(?:png|jpe?g|webp)/i.test(value)) return;
       if (/\.pdf($|\?)/i.test(value)) pdfUrlSet.add(value);
       else if (/\.docx($|\?)/i.test(value)) docxUrlSet.add(value);
       else if (/\.(xlsx|xls)($|\?)/i.test(value)) xlsxUrlSet.add(value);
@@ -521,19 +721,9 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
         return true;
       } catch (e) { return false; }
     }
-    if (ticketScope) {
-      const current = isTicketPage ? extractCurrentTicket() : null;
-      const ticketSectionRevealed = isTicketPage || await revealTicketsSection();
-      const visible = extractVisibleTicketCards();
-      const opened = !isTicketPage && scope === 'trip_and_all_tickets' ? await openAndReadTicketCards() : [];
-      const paginatedTickets = !isTicketPage && scope === 'trip_and_all_tickets' ? await walkVisibleTicketPages() : [];
-      const mergedVisible = [...opened, ...(paginatedTickets.length ? paginatedTickets : visible)];
-
-      tickets = mergedVisible.length ? mergedVisible : (current ? [current] : []);
-      if (!tickets.length) collectionWarning = 'Aucun ticket exploitable n’a été trouvé dans la page courante pour ce périmètre.';
-      else if (!ticketSectionRevealed && !isTicketPage) collectionWarning = 'La section Tickets n’a pas pu être ouverte ; seuls les éléments déjà visibles ont été conservés.';
-      else if (scope === 'trip_and_all_tickets' && !isTicketPage) collectionWarning = 'Les tickets visibles et les pages de pagination détectées ont été capturés ; les tickets non chargés dans le DOM ne sont pas devinés.';
-    }
+    // Les tickets ne sont plus ouverts dans la page : le popup les lit un par un dans un onglet d'arrière-plan
+    // (readTicketsInBackground), pour que l'agent reste sur sa Trip Card et qu'aucune autre page ne soit visitée.
+    if (ticketScope && isTicketPage) tickets = [extractCurrentTicket()];
     const ticket = tickets[0] || null;
 
     const itinerary = {};
@@ -571,12 +761,123 @@ function extractPageContentPerTabAndFiles(scope = 'trip_only') {
       tabDiagnostics.push({ key: vouchersTabDef.key, found: false, chars: 0, panelScoped: false });
     }
 
+    // 4) Lecture structurée de la carte OnSpot (balisage observé via le diagnostic de structure, oct. 2026) :
+    // itinéraire jour par jour, bandeau, rappels, voyageurs, notes, services et cartes de tickets.
+    const textOf = (el) => (el?.innerText || '').replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').trim();
+    const flat = (el) => textOf(el).replace(/\n/g, ' ');
+    // Textes « feuilles » (texte propre de chaque élément) : évite les mots collés quand des <span> en ligne se suivent.
+    const leafTexts = (root) => {
+      const out = [];
+      if (!root) return out;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) { const text = node.textContent.replace(/\s+/g, ' ').trim(); if (text && text !== '·') out.push(text); }
+      return out;
+    };
+    const exactButton = (label, root = document) => Array.from(root.querySelectorAll('button, [role="tab"]')).find((el) => flat(el).toLowerCase() === label.toLowerCase());
+    function sectionByHeading(pattern) {
+      const heading = Array.from(document.querySelectorAll('h2, h3')).find((el) => pattern.test(flat(el)));
+      return heading ? (heading.closest('.flex-col') || heading.parentElement?.parentElement?.parentElement || null) : null;
+    }
+    function headerField(label) {
+      const labelEl = Array.from(document.querySelectorAll('p')).find((el) => flat(el).toLowerCase() === label.toLowerCase());
+      if (!labelEl?.parentElement) return '';
+      return leafTexts(labelEl.parentElement).slice(leafTexts(labelEl).length).join(' ').trim();
+    }
+    async function readStructuredCard() {
+      try {
+        const itineraryButton = exactButton('Itinéraire') || exactButton('Itinerary');
+        if (itineraryButton) { itineraryButton.click(); await sleep(500); }
+        const filterGroup = document.querySelector('[role="group"][aria-label*="Filtrer" i]') || document;
+        const allButton = exactButton('Tous', filterGroup) || exactButton('All', filterGroup);
+        if (allButton) { allButton.click(); await sleep(500); }
+      } catch (e) {}
+      const scroller = document.querySelector('[data-itin-scroll]');
+      const days = Array.from((scroller || document).querySelectorAll('li[data-date-key]')).map((day) => ({
+        date: day.getAttribute('data-date-key') || '',
+        label: flat(day.querySelector('[data-testid="itinerary-day-header"]')),
+        rows: Array.from(day.querySelectorAll('[data-testid="itinerary-row-body"]')).map((row) => {
+          const voucher = row.querySelector('a[href]');
+          return {
+            type: flat(row.querySelector('span.text-xs')),
+            time: flat(row.querySelector('span.font-mono')),
+            title: flat(row.querySelector('h4')),
+            details: Array.from(row.querySelectorAll('p')).map(flat).filter(Boolean),
+            voucher: voucher ? (voucher.getAttribute('aria-label') || '') : '',
+            voucherUrl: voucher ? voucher.href : '',
+            status: Array.from(row.querySelectorAll('[role="img"][aria-label]')).map((el) => el.getAttribute('aria-label')).join(', '),
+          };
+        }),
+      }));
+      const reminderSection = sectionByHeading(/^Reminders\b|^Rappels\b/i);
+      const leafItems = () => (reminderSection ? Array.from(reminderSection.querySelectorAll('li')).filter((li) => !li.querySelector('li')) : []);
+      const isShown = (el) => !el.closest('[hidden],[aria-hidden="true"]') && el.getClientRects().length > 0;
+      const activeItems = new Set(leafItems().filter(isShown));
+      // Déplie la liste « Completed (N) » (simple bouton d'affichage) pour lire aussi les rappels déjà faits.
+      if (reminderSection && scope === 'trip_and_all_tickets') {
+        const toggle = Array.from(reminderSection.querySelectorAll('button[aria-expanded="false"]')).find((el) => /Completed|Termin/i.test(flat(el)));
+        if (toggle) { try { toggle.click(); await sleep(450); } catch (e) {} }
+      }
+      const reminderItems = leafItems();
+      const reminders = [];
+      for (const li of reminderItems) {
+        const lines = leafTexts(li);
+        if (!lines.length) continue;
+        const completed = !activeItems.has(li);
+        let detail = [];
+        if (openReminderDetails) {
+          const before = new Set(document.querySelectorAll('[role="dialog"]'));
+          try { (li.querySelector('button') || li).click(); await sleep(600); } catch (e) {}
+          const dialog = Array.from(document.querySelectorAll('[role="dialog"]')).find((el) => !before.has(el));
+          if (dialog) {
+            detail = leafTexts(dialog).filter((text) => !lines.includes(text));
+            const close = Array.from(dialog.querySelectorAll('button')).find((el) => /^(?:Fermer|Close|Annuler|Cancel|×)$/i.test(flat(el) || el.getAttribute('aria-label') || ''));
+            try { if (close) close.click(); else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(300); } catch (e) {}
+          }
+        }
+        reminders.push({ lines, completed, detail });
+      }
+      const completedReminders = reminderSection ? (flat(reminderSection).match(/Completed\s*\(\s*(\d+)\s*\)|Terminés?\s*\(\s*(\d+)\s*\)/i) || []).slice(1).find(Boolean) || null : null;
+      const travelerSection = sectionByHeading(/^Voyageurs\b|^Travell?ers\b/i);
+      const travelers = travelerSection ? Array.from(travelerSection.querySelectorAll('p.font-medium')).map((nameEl) => {
+        const row = nameEl.closest('.p-3, .rounded-lg') || nameEl.parentElement?.parentElement || nameEl;
+        const contacts = Array.from(row.querySelectorAll('button')).map(flat).filter(Boolean);
+        const badges = Array.from(row.querySelectorAll('span')).map(flat).filter((text) => text && text !== '—' && !contacts.some((contact) => contact.includes(text)) && !flat(nameEl).includes(text));
+        return { name: flat(nameEl), emails: contacts.filter((text) => /@/.test(text)), phones: contacts.filter((text) => /^\+?[\d ()./-]{7,}$/.test(text)), badges: Array.from(new Set(badges)) };
+      }) : [];
+      const notesSection = sectionByHeading(/^Notes$/i);
+      const internalLabel = notesSection ? Array.from(notesSection.querySelectorAll('span, p')).find((el) => /^Interne\s*[—-]\s*OnSpot/i.test(flat(el))) : null;
+      const internalBox = internalLabel ? (internalLabel.closest('.rounded-xl') || internalLabel.parentElement?.parentElement) : null;
+      const notes = notesSection ? Array.from(notesSection.querySelectorAll('p')).filter((el) => !internalBox?.contains(el)).map(textOf).filter((text) => text && !/^Aucune note$/i.test(text)) : [];
+      const internal = internalBox ? Array.from(internalBox.querySelectorAll('p')).map(textOf).filter(Boolean).join('\n') : '';
+      const servicesSection = sectionByHeading(/^Services du trip/i);
+      const services = servicesSection ? Array.from(servicesSection.querySelectorAll('button')).map((el) => textOf(el).split('\n').join(' : ')).filter(Boolean) : [];
+      const ticketSection = sectionByHeading(/^Tickets\b/i);
+      const ticketCards = ticketSection ? Array.from(ticketSection.querySelectorAll('a[href*="/tickets/"]')).map((card) => ({ href: card.href, lines: leafTexts(card) })) : [];
+      return {
+        title: flat(document.querySelector('h1')),
+        header: { pays: headerField('Pays'), dates: headerField('Dates de trip'), agence: headerField('Agence'), voyageurs: headerField('Voyageurs'), forfait: headerField('Forfait') },
+        itinerary: days,
+        reminders,
+        completedReminders: completedReminders ? Number(completedReminders) : null,
+        travelers,
+        notes,
+        internal,
+        services,
+        tickets: ticketCards,
+      };
+    }
+    let structured = null;
+    try { structured = await readStructuredCard(); scanFilesOnCurrentDOM(); } catch (e) { structured = { error: e.message || 'lecture structurée impossible' }; }
+    tabDiagnostics.push({ key: 'structured', found: Boolean(structured?.itinerary?.length), chars: structured?.itinerary?.reduce((sum, day) => sum + day.rows.length, 0) || 0, panelScoped: true });
+
     // 4) Tickets et Rappels ne sont jamais ouverts : le contrôle pré-départ ne doit pas déplacer l’agent vers ces écrans.
     // L’extension conserve uniquement une présence passive observée dans le bandeau principal.
     try { if (originalTab && originalTab instanceof HTMLElement) { originalTab.click(); await sleep(120); } } catch (e) {}
 
     resolve({
       itinerary,
+      structured,
       initialSnapshot,
       travelerData,
       ticketsPresence,
@@ -738,7 +1039,8 @@ function buildEliteOperationalPlan({ allText, files, services, tickets }) {
 function isLikelyTravelerName(value) {
   const name = String(value || '').replace(/\s+/g, ' ').replace(/^(?:M\.|Mr\.?|Mme|Mrs\.?|Ms\.?)\s*/i, '').trim();
   if (!name || name.length < 4 || name.length > 90 || /\d|→|->|@/.test(name)) return false;
-  if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
+  if (/\b(?:call|rappel|reminder|compte rendu|boarding|welcome|goodbye|good bye|here for you|haute valeur|completed)\b/i.test(name)) return false;
+      if (/(?:hotel|hôtel|palazzo|resort|lodge|camp|villa|plains|safari|dunes|spitzkoppen|etosha|mushara|umkumbe|kwessi|dar\s+amane|driver|chauffeur|private|luxury|car|taxi|transfer|transfert|tour|walking|cathedral|airport|milano|milan|como|lugano|duomo|restaurant|activity|activité|voucher|room|suite|king|sedan|daytrip|shopper|\b\d+\s*[·×x])/i.test(name)) return false;
   const words = name.split(/\s+/).filter(Boolean);
   return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-ZÀ-Ý][A-Za-zÀ-ÿ'’-]+$/.test(word));
 }
@@ -783,7 +1085,7 @@ function buildTripCardPayload({ pageData, pdfTexts, docxTexts, xlsxTexts }) {
   const elitePlan = buildEliteOperationalPlan({ allText: `${allText}\n${ticketCorpus}`, files, services, tickets: capturedTickets });
   return {
     schemaVersion: '3.1.0', source: 'onspot-audit-assistant', generatedAt: new Date().toISOString(), pageUrl: pageData.pageUrl, pageTitle: pageData.pageTitle,
-    collection: { scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning || !detailedItineraryCaptured ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: Array.from(new Set([pageData.collectionWarning, !detailedItineraryCaptured ? 'Les onglets détaillés de l’itinéraire n’ont pas été capturés ; les prestations ont été structurées depuis le bandeau visible. Refaire une capture complète pour obtenir les horaires et détails.' : null, detailedItineraryCaptured && !services.length ? 'Les onglets d’itinéraire ont été lus mais aucune prestation structurée n’a été reconnue ; vérifier les diagnostics DOM.' : null].filter(Boolean))), visibleOnly: true },
+    collection: { tabDiagnostics: pageData.tabDiagnostics || [], scope: pageData.scope || 'trip_only', collectionStatus: pageData.collectionWarning || !detailedItineraryCaptured ? 'partial' : 'complete', capturedAt: new Date().toISOString(), warnings: Array.from(new Set([pageData.collectionWarning, !detailedItineraryCaptured ? 'Les onglets détaillés de l’itinéraire n’ont pas été capturés ; les prestations ont été structurées depuis le bandeau visible. Refaire une capture complète pour obtenir les horaires et détails.' : null, detailedItineraryCaptured && !services.length ? 'Les onglets d’itinéraire ont été lus mais aucune prestation structurée n’a été reconnue ; vérifier les diagnostics DOM.' : null].filter(Boolean))), visibleOnly: true },
     reference, travelers: cleanTravelerNames, startDate: serviceDates[0] || null, endDate: serviceDates.at(-1) || null, destination: (allText.match(/(?:Destination|Pays|Country)\s*[:\n]?\s*([^\n]+)/i) || [])[1]?.trim() || null,
     metadata: { agency: (allText.match(/AGENCE\s+([^\n]+)/i) || [])[1]?.trim() || null, tripId: (allText.match(/ID\s+(trip_[^\n]+)/i) || [])[1]?.trim() || null, profileNotes, travelerProfiles: cleanTravelerProfiles, travelerExtraction: { clickedTravelerButtons: pageData.travelerData?.clickedTravelerButtons || 0, clickedPencilButtons: pageData.travelerData?.clickedPencilButtons || 0 }, ticketsPresence: pageData.ticketsPresence || { detected: false, count: null, evidence: 'Non observé.' }, ticketsText: capturedTickets.map(ticket => ticket.conversationText || '').filter(Boolean).join('\n\n'), captureScope: pageData.scope || 'trip_only', ticketCount: capturedTickets.length, elite: elitePlan },
     elite: elitePlan,
